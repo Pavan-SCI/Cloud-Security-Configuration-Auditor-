@@ -166,36 +166,54 @@ def send_slack_notification(payload, webhook_url):
         print(f"[-] Unexpected error sending notification: {e}")
         return False
 
+def trigger_slack_notification(webhook_url=None, report_filename=REPORT_FILENAME):
+    """
+    Loads security report, analyzes findings, formats Slack payload,
+    and sends the notification to the provided or environment-defined Slack webhook URL.
+    Returns a tuple (success, message).
+    """
+    report = load_security_report(report_filename)
+    if not report:
+        return False, "Security report not found. Run main.py first."
+        
+    findings = analyze_findings(report)
+    payload = format_slack_message(findings)
+    
+    if not webhook_url:
+        webhook_url = os.environ.get("SLACK_WEBHOOK_URL")
+        
+    if webhook_url:
+        success = send_slack_notification(payload, webhook_url)
+        if success:
+            return True, "Slack alert sent successfully!"
+        else:
+            return False, "Failed to send Slack alert."
+    else:
+        return False, "SLACK_WEBHOOK_URL is not set."
+
 def main():
     print("==================================================")
     print("       Cloud Security Alert Notifier              ")
     print("==================================================")
     
-    report = load_security_report()
-    if not report:
-        return
-        
-    findings = analyze_findings(report)
-    
-    # Check if there are actual findings to report
-    has_findings = bool(findings["mfa_disabled"] or findings["old_keys"] or findings["public_s3"])
-    
-    # Generate message
-    payload = format_slack_message(findings)
-    
     webhook_url = os.environ.get("SLACK_WEBHOOK_URL")
+    success, message = trigger_slack_notification(webhook_url)
     
-    if webhook_url:
-        print("[*] Slack webhook configured. Sending alert...")
-        send_slack_notification(payload, webhook_url)
-    else:
+    if not success and "not set" in message:
         print("[!] Note: SLACK_WEBHOOK_URL environment variable is not set.")
-        print("[*] Running in DRY-RUN mode. Visualized message payload below:")
-        print(json.dumps(payload, indent=2))
-        print("==================================================")
-        print("To send live Slack alerts, run with: ")
-        print("export SLACK_WEBHOOK_URL=\"your_webhook_url\" && python notifier.py")
-        print("==================================================")
+        # Load and show dry-run
+        report = load_security_report()
+        if report:
+            findings = analyze_findings(report)
+            payload = format_slack_message(findings)
+            print("[*] Running in DRY-RUN mode. Visualized message payload below:")
+            print(json.dumps(payload, indent=2))
+            print("==================================================")
+            print("To send live Slack alerts, run with: ")
+            print("export SLACK_WEBHOOK_URL=\"your_webhook_url\" && python notifier.py")
+            print("==================================================")
+    else:
+        print(f"[*] Alert Status: {message}")
 
 if __name__ == "__main__":
     main()

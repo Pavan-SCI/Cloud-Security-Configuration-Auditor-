@@ -72,27 +72,37 @@ def audit_s3_buckets():
         
     return report
 
+def run_audit_and_save(filename="security_report.json"):
+    """
+    Executes the IAM and S3 security audits, aggregates the results,
+    saves them to a JSON file, and returns the aggregated report dict.
+    """
+    iam_report = audit_iam_users()
+    s3_report = audit_s3_buckets()
+    
+    final_report = {
+        "Timestamp": datetime.now().isoformat(),
+        "IAM_Audit": iam_report,
+        "S3_Audit": s3_report
+    }
+    
+    with open(filename, 'w') as f:
+        json.dump(final_report, f, indent=4)
+        
+    return final_report
+
 def main():
     print("==================================================")
     print("    AWS Cloud Security Configuration Auditor      ")
     print("==================================================")
     
     try:
-        # Run audit functions
-        iam_report = audit_iam_users()
-        s3_report = audit_s3_buckets()
-        
-        # Aggregate final security report
-        final_report = {
-            "Timestamp": datetime.now().isoformat(),
-            "IAM_Audit": iam_report,
-            "S3_Audit": s3_report
-        }
-        
-        # Save findings to JSON file
+        # Run audit and save report
+        final_report = run_audit_and_save()
+        iam_report = final_report["IAM_Audit"]
+        s3_report = final_report["S3_Audit"]
         filename = "security_report.json"
-        with open(filename, 'w') as f:
-            json.dump(final_report, f, indent=4)
+        
         print(f"\n[+] Audit complete! Detailed report saved to: {filename}")
         
         # Print Security Gap Dashboard to Console

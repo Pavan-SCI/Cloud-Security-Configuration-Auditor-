@@ -1,0 +1,413 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>AWS Cloud Security Auditor Dashboard</title>
+    <!-- Local font fallback (prevents render block if Google Fonts is unavailable) -->
+    <style>
+        body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, sans-serif; }
+    </style>
+    <!-- Premium Fonts (non-blocking) -->
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700&display=swap" rel="stylesheet" media="print" onload="this.media='all'">
+    <!-- Styled CSS link -->
+    <link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+    <div class="background-glows">
+        <div class="glow glow-1"></div>
+        <div class="glow glow-2"></div>
+    </div>
+
+    <div class="dashboard-container">
+        <!-- Header -->
+        <header class="dashboard-header glass">
+            <div class="logo-area">
+                <span class="shield-icon">🛡️</span>
+                <div>
+                    <h1>AWS Security Configuration Auditor</h1>
+                    <p class="subtitle">Real-time AWS IAM & S3 Configuration Guardrails Scanner</p>
+                </div>
+            </div>
+            <div class="scan-status-panel">
+                <span class="status-indicator-dot" id="global-status-dot"></span>
+                <span class="status-text" id="global-status-text">Checking Status...</span>
+            </div>
+        </header>
+
+        <!-- Main Workspace -->
+        <main class="dashboard-grid">
+            <!-- Controls & Settings Panel -->
+            <section class="controls-panel glass">
+                <h2>Scan Actions</h2>
+                <div class="action-buttons">
+                    <button id="btn-scan" class="btn btn-primary">
+                        <span class="icon">🔄</span> Trigger AWS Security Audit
+                    </button>
+                    <button id="btn-reset" class="btn btn-tertiary">
+                        <span class="icon">🔁</span> Reset Dashboard
+                    </button>
+                </div>
+                
+                <hr class="divider">
+                
+                <h2>Slack Alert Configurations</h2>
+                <div class="webhook-settings">
+                    <label for="webhook-url">Slack Webhook URL</label>
+                    <input type="password" id="webhook-url" placeholder="https://hooks.slack.com/services/...">
+                    <small>Leave blank to fall back to system environment variables.</small>
+                    <button id="btn-notify" class="btn btn-secondary">
+                        <span class="icon">🔔</span> Send Slack Notification
+                    </button>
+                </div>
+                
+                <hr class="divider">
+                
+                <div class="audit-info">
+                    <h3>Last Scanned</h3>
+                    <p id="lbl-timestamp" class="timestamp-label">-</p>
+                </div>
+            </section>
+
+            <!-- Results & Visualization Panel -->
+            <section class="results-panel">
+                <!-- Summary Metrics Row -->
+                <div class="metrics-grid">
+                    <div class="metric-card glass" id="metric-iam">
+                        <div class="metric-header">
+                            <h3>IAM Security Status</h3>
+                            <span class="metric-icon">👤</span>
+                        </div>
+                        <p class="metric-value" id="val-iam">Pending Scan</p>
+                        <p class="metric-desc" id="desc-iam">MFA & Access Keys Age</p>
+                    </div>
+                    
+                    <div class="metric-card glass" id="metric-s3">
+                        <div class="metric-header">
+                            <h3>S3 Public Exposure</h3>
+                            <span class="metric-icon">🪣</span>
+                        </div>
+                        <p class="metric-value" id="val-s3">Pending Scan</p>
+                        <p class="metric-desc" id="desc-s3">Public Access Block configurations</p>
+                    </div>
+                </div>
+
+                <!-- Tabbed Details -->
+                <div class="details-card glass">
+                    <div class="details-header">
+                        <button class="tab-link active" onclick="openTab(event, 'iam-tab')">IAM User Accounts</button>
+                        <button class="tab-link" onclick="openTab(event, 's3-tab')">S3 Buckets</button>
+                    </div>
+                    
+                    <div class="details-body">
+                        <!-- IAM Tab -->
+                        <div id="iam-tab" class="tab-content active">
+                            <div class="table-container">
+                                <table>
+                                    <thead>
+                                        <tr>
+                                            <th>UserName</th>
+                                            <th>MFA Protection</th>
+                                            <th>Access Keys Requiring Rotation (>90 Days)</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody id="tbl-iam-body">
+                                        <tr>
+                                            <td colspan="3" class="placeholder-text">Please trigger a scan to load AWS resources.</td>
+                                        </tr>
+                                    </tbody>
+                                </table>
+                            </div>
+                        </div>
+                        
+                        <!-- S3 Tab -->
+                        <div id="s3-tab" class="tab-content">
+                            <div class="table-container">
+                                <table>
+                                    <thead>
+                                        <tr>
+                                            <th>S3 Bucket Name</th>
+                                            <th>Public Visibility Block Status</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody id="tbl-s3-body">
+                                        <tr>
+                                            <td colspan="2" class="placeholder-text">Please trigger a scan to load AWS resources.</td>
+                                        </tr>
+                                    </tbody>
+                                </table>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </section>
+        </main>
+        
+        <!-- Footer -->
+        <footer class="dashboard-footer">
+            <p>Cloud Security Configuration Auditor • Designed for AWS Compliance Controls</p>
+        </footer>
+    </div>
+
+    <!-- Notification Toast -->
+    <div id="toast" class="toast"></div>
+
+    <!-- Dashboard JavaScript Logic -->
+    <script>
+        // Tab switching logic
+        function openTab(evt, tabId) {
+            const contents = document.getElementsByClassName("tab-content");
+            for (let i = 0; i < contents.length; i++) {
+                contents[i].classList.remove("active");
+            }
+            const links = document.getElementsByClassName("tab-link");
+            for (let i = 0; i < links.length; i++) {
+                links[i].classList.remove("active");
+            }
+            document.getElementById(tabId).classList.add("active");
+            evt.currentTarget.classList.add("active");
+        }
+
+        // Toast notifications
+        function showToast(message, isSuccess = true) {
+            const toast = document.getElementById("toast");
+            toast.textContent = message;
+            toast.className = `toast show ${isSuccess ? 'success' : 'error'}`;
+            setTimeout(() => {
+                toast.classList.remove("show");
+            }, 4000);
+        }
+
+        // Load existing report on startup
+        document.addEventListener("DOMContentLoaded", () => {
+            // Load saved Slack webhook URL from localStorage for developer convenience
+            const savedWebhook = localStorage.getItem("slack_webhook");
+            if (savedWebhook) {
+                document.getElementById("webhook-url").value = savedWebhook;
+            }
+
+            fetchReport();
+        });
+
+        // Save webhook to localStorage when changed
+        document.getElementById("webhook-url").addEventListener("input", (e) => {
+            localStorage.setItem("slack_webhook", e.target.value);
+        });
+
+        // Fetch report data
+        function fetchReport() {
+            fetch('/api/report')
+                .then(res => {
+                    if (!res.ok) throw new Error("No previous report file found.");
+                    return res.json();
+                })
+                .then(data => {
+                    if (data.success && data.report) {
+                        renderDashboard(data.report);
+                    }
+                })
+                .catch(err => {
+                    console.log(err.message);
+                    setPlaceholderState("Pending Initial Scan");
+                });
+        }
+
+        // Trigger AWS Scan
+        document.getElementById("btn-scan").addEventListener("click", () => {
+            const btn = document.getElementById("btn-scan");
+            btn.disabled = true;
+            btn.innerHTML = `<span class="spinner"></span> Scanning AWS...`;
+            
+            fetch('/api/scan', { method: 'POST' })
+                .then(res => {
+                    if (!res.ok) return res.json().then(e => { throw new Error(e.error || "Scan failed") });
+                    return res.json();
+                })
+                .then(data => {
+                    showToast("AWS Configuration Scan completed!");
+                    renderDashboard(data.report);
+                })
+                .catch(err => {
+                    showToast(err.message, false);
+                })
+                .finally(() => {
+                    btn.disabled = false;
+                    btn.innerHTML = `<span class="icon">🔄</span> Trigger AWS Security Audit`;
+                });
+        });
+
+        // Reset Dashboard to initial empty state
+        document.getElementById("btn-reset").addEventListener("click", () => {
+            // Reset global status
+            document.getElementById("global-status-dot").className = "status-indicator-dot warning";
+            document.getElementById("global-status-text").textContent = "Dashboard Reset";
+
+            // Reset metric cards
+            document.getElementById("val-iam").textContent = "Pending Scan";
+            document.getElementById("metric-iam").className = "metric-card glass";
+            document.getElementById("val-s3").textContent = "Pending Scan";
+            document.getElementById("metric-s3").className = "metric-card glass";
+
+            // Reset timestamp
+            document.getElementById("lbl-timestamp").textContent = "-";
+
+            // Reset IAM table
+            document.getElementById("tbl-iam-body").innerHTML = `
+                <tr><td colspan="3" class="placeholder-text">Please trigger a scan to load AWS resources.</td></tr>
+            `;
+
+            // Reset S3 table
+            document.getElementById("tbl-s3-body").innerHTML = `
+                <tr><td colspan="2" class="placeholder-text">Please trigger a scan to load AWS resources.</td></tr>
+            `;
+
+            // Switch back to IAM tab
+            document.getElementById("iam-tab").classList.add("active");
+            document.getElementById("s3-tab").classList.remove("active");
+            const tabs = document.getElementsByClassName("tab-link");
+            tabs[0].classList.add("active");
+            tabs[1].classList.remove("active");
+
+            showToast("Dashboard reset to initial state.", true);
+        });
+
+        // Trigger Slack Notification
+        document.getElementById("btn-notify").addEventListener("click", () => {
+            const btn = document.getElementById("btn-notify");
+            const webhookUrl = document.getElementById("webhook-url").value;
+            
+            btn.disabled = true;
+            btn.innerHTML = `<span class="spinner"></span> Sending alert...`;
+            
+            fetch('/api/notify', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ webhook_url: webhookUrl })
+            })
+            .then(res => res.json())
+            .then(data => {
+                if (data.success) {
+                    showToast(data.message, true);
+                } else {
+                    showToast(data.message, false);
+                }
+            })
+            .catch(err => {
+                showToast("Connection failed", false);
+            })
+            .finally(() => {
+                btn.disabled = false;
+                btn.innerHTML = `<span class="icon">🔔</span> Send Slack Notification`;
+            });
+        });
+
+        // Set placeholder states
+        function setPlaceholderState(statusText) {
+            document.getElementById("global-status-dot").className = "status-indicator-dot warning";
+            document.getElementById("global-status-text").textContent = statusText;
+        }
+
+        // Render data on Dashboard
+        function renderDashboard(report) {
+            // Render timestamp
+            const rawTime = report.Timestamp || new Date().toISOString();
+            const formattedTime = new Date(rawTime).toLocaleString();
+            document.getElementById("lbl-timestamp").textContent = formattedTime;
+            
+            // Check status variables
+            let iamGaps = 0;
+            let s3Gaps = 0;
+            let totalGaps = 0;
+
+            // Render IAM Body
+            const iamBody = document.getElementById("tbl-iam-body");
+            const iamAudit = report.IAM_Audit || [];
+            
+            if (iamAudit.length === 0) {
+                iamBody.innerHTML = `<tr><td colspan="3" class="placeholder-text">No IAM Users found in this account.</td></tr>`;
+            } else {
+                let html = "";
+                iamAudit.forEach(user => {
+                    const mfaClass = user.MFAEnabled ? "badge success" : "badge danger";
+                    const mfaText = user.MFAEnabled ? "Active" : "Disabled";
+                    
+                    if (!user.MFAEnabled) iamGaps++;
+                    
+                    let keysHtml = "✅ All secure";
+                    if (user.OldAccessKeys && user.OldAccessKeys.length > 0) {
+                        keysHtml = user.OldAccessKeys.map(k => {
+                            iamGaps++;
+                            return `<span class="badge danger-pill">⚠️ Key ${k.AccessKeyId} (${k.AgeDays} days)</span>`;
+                        }).join(" ");
+                    }
+                    
+                    html += `<tr>
+                        <td><strong>${user.UserName}</strong></td>
+                        <td><span class="${mfaClass}">${mfaText}</span></td>
+                        <td>${keysHtml}</td>
+                    </tr>`;
+                });
+                iamBody.innerHTML = html;
+            }
+
+            // Render S3 Body
+            const s3Body = document.getElementById("tbl-s3-body");
+            const s3Audit = report.S3_Audit || [];
+            
+            if (s3Audit.length === 0) {
+                s3Body.innerHTML = `<tr><td colspan="2" class="placeholder-text">No S3 Buckets found in this account.</td></tr>`;
+            } else {
+                let html = "";
+                s3Audit.forEach(bucket => {
+                    const statusClass = bucket.IsPublic ? "badge danger" : "badge success";
+                    const statusText = bucket.IsPublic ? "Public Access Block Missing / Incomplete" : "Secure (Private Block Active)";
+                    
+                    if (bucket.IsPublic) s3Gaps++;
+                    
+                    html += `<tr>
+                        <td><strong>${bucket.BucketName}</strong></td>
+                        <td><span class="${statusClass}">${statusText}</span></td>
+                    </tr>`;
+                });
+                s3Body.innerHTML = html;
+            }
+
+            // Calculate overall risk
+            totalGaps = iamGaps + s3Gaps;
+            const globalDot = document.getElementById("global-status-dot");
+            const globalText = document.getElementById("global-status-text");
+            
+            if (totalGaps === 0) {
+                globalDot.className = "status-indicator-dot success";
+                globalText.textContent = "Fully Compliant / Secure";
+            } else {
+                globalDot.className = "status-indicator-dot danger";
+                globalText.textContent = `${totalGaps} High-Risk Security Gaps Found`;
+            }
+
+            // Render cards metrics
+            const valIam = document.getElementById("val-iam");
+            const cardIam = document.getElementById("metric-iam");
+            if (iamGaps === 0) {
+                valIam.textContent = "Secure";
+                cardIam.className = "metric-card glass secure-glow";
+            } else {
+                valIam.textContent = `${iamGaps} Warnings`;
+                cardIam.className = "metric-card glass danger-glow";
+            }
+
+            const valS3 = document.getElementById("val-s3");
+            const cardS3 = document.getElementById("metric-s3");
+            if (s3Gaps === 0) {
+                valS3.textContent = "Private";
+                cardS3.className = "metric-card glass secure-glow";
+            } else {
+                valS3.textContent = "Public Risk!";
+                cardS3.className = "metric-card glass danger-glow";
+            }
+        }
+    </script>
+</body>
+</html>

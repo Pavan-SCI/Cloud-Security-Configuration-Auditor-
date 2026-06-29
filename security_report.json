@@ -1,0 +1,25 @@
+{
+    "Timestamp": "2026-06-29T15:02:02.708662",
+    "IAM_Audit": [
+        {
+            "UserName": "user1",
+            "MFAEnabled": false,
+            "OldAccessKeys": []
+        },
+        {
+            "UserName": "user2",
+            "MFAEnabled": true,
+            "OldAccessKeys": []
+        }
+    ],
+    "S3_Audit": [
+        {
+            "BucketName": "secure-audit-bucket-demo",
+            "IsPublic": false
+        },
+        {
+            "BucketName": "unblocked-public-bucket-demo",
+            "IsPublic": true
+        }
+    ]
+}
