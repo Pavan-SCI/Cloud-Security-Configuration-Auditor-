@@ -112,6 +112,12 @@
     </style>
 </head>
 <body>
+    <div style="position: fixed; top: 20px; right: 20px; z-index: 100;">
+        <button id="btn-theme-toggle" class="btn btn-tertiary btn-small" style="padding: 8px 14px; font-size: 12px; display: flex; align-items: center; gap: 6px; border: 1px solid var(--border-color); background: rgba(0,0,0,0.2);">
+            🌓 Switch Theme
+        </button>
+    </div>
+
     <div class="background-glows">
         <div class="glow glow-1"></div>
         <div class="glow glow-2"></div>
@@ -145,24 +151,32 @@
                     </div>
                 </div>
 
-                <div class="info-box" style="display: flex; flex-direction: column; gap: 8px;">
-                    <label for="mock_account_id" style="font-weight: 600; color: var(--neon-blue);">Select Target AWS Account to Audit:</label>
-                    <select id="mock_account_id" style="background: rgba(0,0,0,0.3); border: 1px solid var(--border-color); color: var(--text-main); padding: 8px; border-radius: 6px; font-family: inherit; font-size: 13px; outline: none; width: 100%;">
-                        <option value="111122223333" selected>Development Account (111122223333)</option>
-                        <option value="444455556666">Staging Account (444455556666)</option>
-                        <option value="777788889999">Production Account (777788889999)</option>
-                    </select>
+                <div class="info-box">
+                    ℹ️ <strong>Mock Demo Account Target:</strong><br>
+                    AWS Account: <code>123456789012</code> (Mock Cognito SSO Role)
                 </div>
             </div>
 
             <div class="btn-group">
                 <a href="/login" class="btn btn-tertiary" style="text-decoration: none; text-align: center; line-height: 24px;">Cancel</a>
-                <form action="/login/aws/mock/approve" method="POST" id="approve-form">
-                    <input type="hidden" name="selected_account" id="selected_account">
-                    <button type="submit" class="btn btn-cf" onclick="document.getElementById('selected_account').value = document.getElementById('mock_account_id').value">Approve & Log In</button>
+                <form action="/login/aws/mock/approve" method="POST">
+                    <button type="submit" class="btn btn-cf">Approve & Log In</button>
                 </form>
             </div>
         </div>
     </div>
+    <script>
+        // Theme switching logic
+        const themeBtn = document.getElementById("btn-theme-toggle");
+        const savedTheme = localStorage.getItem("theme") || "dark";
+        document.documentElement.setAttribute("data-theme", savedTheme);
+        
+        themeBtn.addEventListener("click", () => {
+            const currentTheme = document.documentElement.getAttribute("data-theme");
+            const newTheme = currentTheme === "dark" ? "light" : "dark";
+            document.documentElement.setAttribute("data-theme", newTheme);
+            localStorage.setItem("theme", newTheme);
+        });
+    </script>
 </body>
 </html>

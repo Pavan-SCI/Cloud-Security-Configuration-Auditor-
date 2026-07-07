@@ -23,6 +23,50 @@
     --shadow-main: 0 8px 32px 0 rgba(0, 0, 0, 0.37);
 }
 
+/* Light Mode Variables Override */
+[data-theme="light"] {
+    --bg-dark: #f1f5f9;
+    --card-bg: rgba(255, 255, 255, 0.75);
+    --border-color: rgba(15, 23, 42, 0.1);
+    --border-hover: rgba(15, 23, 42, 0.18);
+    
+    --text-main: #0f172a;
+    --text-muted: #64748b;
+    
+    --neon-blue: #0284c7;
+    --neon-blue-glow: rgba(2, 132, 199, 0.12);
+    
+    --neon-green: #15803d;
+    --neon-green-glow: rgba(21, 128, 61, 0.12);
+    
+    --neon-red: #b91c1c;
+    --neon-red-glow: rgba(185, 28, 28, 0.12);
+    
+    --neon-orange: #c2410c;
+    --neon-orange-glow: rgba(194, 65, 12, 0.12);
+    
+    --shadow-main: 0 8px 32px 0 rgba(15, 23, 42, 0.06);
+}
+
+/* Base resets in light theme */
+[data-theme="light"] input,
+[data-theme="light"] select,
+[data-theme="light"] option,
+[data-theme="light"] table,
+[data-theme="light"] th,
+[data-theme="light"] td {
+    background-color: rgba(255, 255, 255, 0.8) !important;
+    color: #0f172a !important;
+}
+
+[data-theme="light"] .placeholder-text {
+    color: #64748b !important;
+}
+
+[data-theme="light"] .logo-area h1 span {
+    color: #0284c7 !important;
+}
+
 * {
     margin: 0;
     padding: 0;

@@ -32,6 +32,9 @@
                 </div>
             </div>
             <div class="scan-status-panel" style="display: flex; align-items: center; gap: 15px;">
+                <button id="btn-theme-toggle" class="btn btn-tertiary btn-small" style="padding: 6px 12px; font-size: 11px; display: flex; align-items: center; gap: 5px;">
+                    🌓 Theme
+                </button>
                 <div style="display: flex; align-items: center; gap: 8px;">
                     <span class="status-indicator-dot" id="global-status-dot"></span>
                     <span class="status-text" id="global-status-text">Checking Status...</span>
@@ -224,8 +227,20 @@
                 document.getElementById("webhook-url").value = savedWebhook;
             }
 
+            // Initialize theme on load
+            const savedTheme = localStorage.getItem("theme") || "dark";
+            document.documentElement.setAttribute("data-theme", savedTheme);
+
             fetchReport();
             setupSSE();
+        });
+
+        // Theme switching logic
+        document.getElementById("btn-theme-toggle").addEventListener("click", () => {
+            const currentTheme = document.documentElement.getAttribute("data-theme");
+            const newTheme = currentTheme === "dark" ? "light" : "dark";
+            document.documentElement.setAttribute("data-theme", newTheme);
+            localStorage.setItem("theme", newTheme);
         });
 
         // Save webhook to localStorage when changed
