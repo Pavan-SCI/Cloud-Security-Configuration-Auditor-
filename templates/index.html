@@ -31,9 +31,14 @@
                     <p class="subtitle">Real-time AWS IAM & S3 Configuration Guardrails Scanner</p>
                 </div>
             </div>
-            <div class="scan-status-panel">
-                <span class="status-indicator-dot" id="global-status-dot"></span>
-                <span class="status-text" id="global-status-text">Checking Status...</span>
+            <div class="scan-status-panel" style="display: flex; align-items: center; gap: 15px;">
+                <div style="display: flex; align-items: center; gap: 8px;">
+                    <span class="status-indicator-dot" id="global-status-dot"></span>
+                    <span class="status-text" id="global-status-text">Checking Status...</span>
+                </div>
+                <button id="btn-logout" class="btn btn-tertiary btn-small" style="padding: 6px 12px; font-size: 11px;">
+                    🚪 Logout
+                </button>
             </div>
         </header>
 
@@ -49,6 +54,17 @@
                     <button id="btn-reset" class="btn btn-tertiary">
                         <span class="icon">🔁</span> Reset Dashboard
                     </button>
+                </div>
+                
+                <hr class="divider">
+                
+                <h2>Active AWS Connection</h2>
+                <div class="credentials-settings">
+                    <div class="onboarding-text" style="background: rgba(255,255,255,0.03); border: 1px solid var(--border-color); padding: 12px; border-radius: 8px; font-size: 12px; display: flex; flex-direction: column; gap: 8px;">
+                        <div>🟢 <strong>Connected Account:</strong> <span id="lbl-account-id">Loading...</span></div>
+                        <div>🌎 <strong>Scan Region:</strong> <span id="lbl-scan-region">Loading...</span></div>
+                        <div id="lbl-role-row" style="display: none; word-break: break-all;">🔗 <strong>Role ARN:</strong> <span id="lbl-role-arn">-</span></div>
+                    </div>
                 </div>
                 
                 <hr class="divider">
@@ -189,6 +205,7 @@
             }
 
             fetchReport();
+            setupSSE();
         });
 
         // Save webhook to localStorage when changed
@@ -196,22 +213,110 @@
             localStorage.setItem("slack_webhook", e.target.value);
         });
 
+        // Setup Server-Sent Events listener for real-time AWS alerts
+        function setupSSE() {
+            const source = new EventSource('/api/stream');
+            
+            source.onmessage = (event) => {
+                try {
+                    const payload = JSON.parse(event.data);
+                    
+                    if (payload.type === "connection") {
+                        console.log("[SSE]", payload.message);
+                    } 
+                    else if (payload.type === "report_updated") {
+                        console.log("[SSE] Report updated via manual scan.");
+                        renderDashboard(payload.data);
+                    } 
+                    else if (payload.type === "aws_security_event") {
+                        const eventData = payload.data;
+                        console.log("[SSE] Real-time AWS Security Event:", eventData);
+                        
+                        // Update the dashboard tables dynamically
+                        renderDashboard(eventData.report);
+                        
+                        // Display prominent toast notification
+                        if (eventData.has_warning) {
+                            showToast(`🚨 REAL-TIME ALERT: ${eventData.warning_message}`, false);
+                        } else {
+                            showToast(`✅ Real-time: Verified ${eventData.resource_type} '${eventData.resource_name}' (Secure)`, true);
+                        }
+                    }
+                } catch (e) {
+                    console.error("Error parsing SSE message:", e);
+                }
+            };
+            
+            source.onerror = (err) => {
+                console.warn("SSE connection closed or lost. Browser will auto-reconnect.");
+            };
+        }
+
         // Fetch report data
         function fetchReport() {
             fetch('/api/report')
-                .then(res => {
-                    if (!res.ok) throw new Error("No previous report file found.");
-                    return res.json();
-                })
+                .then(res => res.json())
                 .then(data => {
-                    if (data.success && data.report) {
-                        renderDashboard(data.report);
+                    if (data.success) {
+                        if (data.report) {
+                            renderDashboard(data.report);
+                        }
+                        updateConnectionStatus(data);
                     }
                 })
                 .catch(err => {
                     console.log(err.message);
                     setPlaceholderState("Pending Initial Scan");
                 });
+        }
+
+        // Logout user session
+        document.getElementById("btn-logout").addEventListener("click", () => {
+            fetch('/logout', { method: 'POST' })
+            .then(res => res.json())
+            .then(data => {
+                if (data.success) {
+                    window.location.href = '/login';
+                }
+            })
+            .catch(err => {
+                window.location.href = '/login';
+            });
+        });
+
+        function updateConnectionStatus(data) {
+            const logoArea = document.querySelector(".logo-area");
+            
+            // Remove existing badges
+            const oldBadge = document.getElementById("connection-badge");
+            if (oldBadge) oldBadge.remove();
+            
+            if (data && data.aws_account_id) {
+                // Update active sidebar info card
+                document.getElementById("lbl-account-id").textContent = data.aws_account_id;
+                document.getElementById("lbl-scan-region").textContent = data.region_name || "us-east-1";
+                
+                const roleRow = document.getElementById("lbl-role-row");
+                const roleArnSpan = document.getElementById("lbl-role-arn");
+                
+                if (data.role_arn) {
+                    roleRow.style.display = "block";
+                    roleArnSpan.textContent = data.role_arn;
+                } else {
+                    roleRow.style.display = "none";
+                }
+                
+                const badge = document.createElement("span");
+                badge.id = "connection-badge";
+                badge.className = "badge success";
+                badge.style.marginLeft = "12px";
+                badge.style.fontSize = "11px";
+                badge.style.fontWeight = "600";
+                badge.style.verticalAlign = "middle";
+                badge.textContent = `🔗 Active: ${data.aws_account_id}`;
+                
+                logoArea.querySelector("div").appendChild(badge);
+            }
         }
 
         // Trigger AWS Scan

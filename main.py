@@ -2,15 +2,72 @@ import boto3
 import json
 from datetime import datetime, timezone
 
-def audit_iam_users():
+def get_aws_client(service_name, creds=None):
+    """
+    Initializes a boto3 client dynamically based on provided session credentials.
+    If creds is empty/None, falls back to default local CLI credentials.
+    """
+    creds = creds or {}
+    role_arn = creds.get("role_arn")
+    region_name = creds.get("region_name") or "us-east-1"
+    
+    # Credentials variables
+    aws_access_key_id = creds.get("aws_access_key_id")
+    aws_secret_access_key = creds.get("aws_secret_access_key")
+    aws_session_token = creds.get("aws_session_token")
+    
+    if role_arn:
+        print(f"[*] Assuming Role: '{role_arn}' via AWS STS...")
+        if aws_access_key_id and aws_secret_access_key:
+            sts_client = boto3.client(
+                'sts',
+                aws_access_key_id=aws_access_key_id,
+                aws_secret_access_key=aws_secret_access_key,
+                aws_session_token=aws_session_token,
+                region_name=region_name
+            )
+        else:
+            sts_client = boto3.client('sts', region_name=region_name)
+            
+        assumed_role_object = sts_client.assume_role(
+            RoleArn=role_arn,
+            RoleSessionName="SaaSAuditingSession",
+            ExternalId="auditor-secure-token-xyz"
+        )
+        credentials = assumed_role_object['Credentials']
+        return boto3.client(
+            service_name,
+            aws_access_key_id=credentials['AccessKeyId'],
+            aws_secret_access_key=credentials['SecretAccessKey'],
+            aws_session_token=credentials['SessionToken'],
+            region_name=region_name
+        )
+        
+    if aws_access_key_id and aws_secret_access_key:
+        return boto3.client(
+            service_name,
+            aws_access_key_id=aws_access_key_id,
+            aws_secret_access_key=aws_secret_access_key,
+            aws_session_token=aws_session_token,
+            region_name=region_name
+        )
+        
+    return boto3.client(service_name, region_name=region_name)
+
+def audit_iam_users(creds=None):
     """
     Audits AWS IAM users for security best practices:
     1. Checks if Multi-Factor Authentication (MFA) is enabled.
     2. Checks if there are active access keys older than 90 days.
     """
     print("[*] Auditing IAM Users...")
-    client = boto3.client('iam')
-    users = client.list_users()['Users']
+    try:
+        client = get_aws_client('iam', creds)
+        users = client.list_users()['Users']
+    except Exception as e:
+        print(f"[-] IAM Audit failed to list users: {e}")
+        raise e
+        
     report = []
     
     for user in users:
@@ -40,14 +97,19 @@ def audit_iam_users():
         
     return report
 
-def audit_s3_buckets():
+def audit_s3_buckets(creds=None):
     """
     Audits S3 Buckets to check if Public Access Block is configured.
     An unconfigured or partially configured public access block represents a security gap.
     """
     print("[*] Auditing S3 Buckets...")
-    client = boto3.client('s3')
-    buckets = client.list_buckets()['Buckets']
+    try:
+        client = get_aws_client('s3', creds)
+        buckets = client.list_buckets()['Buckets']
+    except Exception as e:
+        print(f"[-] S3 Audit failed to list buckets: {e}")
+        raise e
+        
     report = []
     
     for bucket in buckets:
@@ -72,13 +134,13 @@ def audit_s3_buckets():
         
     return report
 
-def run_audit_and_save(filename="security_report.json"):
+def run_audit_and_save(filename="security_report.json", creds=None):
     """
     Executes the IAM and S3 security audits, aggregates the results,
     saves them to a JSON file, and returns the aggregated report dict.
     """
-    iam_report = audit_iam_users()
-    s3_report = audit_s3_buckets()
+    iam_report = audit_iam_users(creds)
+    s3_report = audit_s3_buckets(creds)
     
     final_report = {
         "Timestamp": datetime.now().isoformat(),

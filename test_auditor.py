@@ -245,5 +245,221 @@ class TestNotifier(unittest.TestCase):
         self.assertIn("insecure-user", output)
         self.assertIn("insecure-bucket", output)
 
+class TestFlaskRealTimeAPI(unittest.TestCase):
+    
+    def setUp(self):
+        from app import app
+        app.config['TESTING'] = True
+        self.client = app.test_client()
+        # Enable aws_creds session state for API testing
+        with self.client.session_transaction() as sess:
+            sess['aws_creds'] = {
+                "aws_access_key_id": "AKIAINSECURE123",
+                "aws_secret_access_key": "mock_secret",
+                "region_name": "us-east-1"
+            }
+            sess['aws_account_id'] = "123456789012"
+        
+    @patch('main.run_audit_and_save')
+    @patch('notifier.trigger_slack_notification')
+    def test_aws_webhook_receiver_iam(self, mock_notify, mock_audit):
+        # Setup mock report
+        mock_audit.return_value = {
+            "Timestamp": "2026-07-07T05:59:46",
+            "IAM_Audit": [
+                {
+                    "UserName": "Insecure-Test-User",
+                    "MFAEnabled": False,
+                    "OldAccessKeys": []
+                }
+            ],
+            "S3_Audit": []
+        }
+        
+        # Test request body mimicking EventBridge CloudTrail user creation event
+        payload = {
+            "detail-type": "AWS API Call via CloudTrail",
+            "detail": {
+                "eventName": "CreateUser",
+                "requestParameters": {
+                    "userName": "Insecure-Test-User"
+                }
+            }
+        }
+        
+        response = self.client.post('/api/webhook', json=payload)
+        
+        self.assertEqual(response.status_code, 200)
+        response_data = json.loads(response.data)
+        self.assertTrue(response_data['success'])
+        self.assertTrue(response_data['has_warning'])
+        
+        # Verify that Slack alert notification was triggered because user is insecure (no MFA)
+        mock_notify.assert_called_once()
+
+    @patch('main.run_audit_and_save')
+    @patch('notifier.trigger_slack_notification')
+    def test_aws_webhook_receiver_s3_secure(self, mock_notify, mock_audit):
+        # Setup mock report
+        mock_audit.return_value = {
+            "Timestamp": "2026-07-07T05:59:46",
+            "IAM_Audit": [],
+            "S3_Audit": [
+                {
+                    "BucketName": "secure-bucket-demo",
+                    "IsPublic": False
+                }
+            ]
+        }
+        
+        payload = {
+            "detail-type": "AWS API Call via CloudTrail",
+            "detail": {
+                "eventName": "CreateBucket",
+                "requestParameters": {
+                    "bucketName": "secure-bucket-demo"
+                }
+            }
+        }
+        
+        response = self.client.post('/api/webhook', json=payload)
+        
+        self.assertEqual(response.status_code, 200)
+        response_data = json.loads(response.data)
+        self.assertTrue(response_data['success'])
+        self.assertFalse(response_data['has_warning']) # No warning because bucket is secure
+        
+        # Verify that Slack notification was NOT triggered
+        mock_notify.assert_not_called()
+
+class TestKeylessRoleDelegation(unittest.TestCase):
+    
+    @patch('boto3.client')
+    def test_get_aws_client_local(self, mock_boto_client):
+        import main
+        main.get_aws_client('iam')
+        mock_boto_client.assert_called_with('iam', region_name='us-east-1')
+
+    @patch('boto3.client')
+    def test_get_aws_client_assumed_role(self, mock_boto_client):
+        import main
+        mock_sts = MagicMock()
+        mock_sts.assume_role.return_value = {
+            'Credentials': {
+                'AccessKeyId': 'ASIA_TEMP_KEY',
+                'SecretAccessKey': 'TEMP_SECRET',
+                'SessionToken': 'TEMP_TOKEN'
+            }
+        }
+        
+        def boto_client_side_effect(service_name, **kwargs):
+            if service_name == 'sts':
+                return mock_sts
+            return MagicMock()
+            
+        mock_boto_client.side_effect = boto_client_side_effect
+        
+        main.get_aws_client('s3', creds={"role_arn": "arn:aws:iam::123456789012:role/TestRole"})
+        
+        mock_sts.assume_role.assert_called_once_with(
+            RoleArn="arn:aws:iam::123456789012:role/TestRole",
+            RoleSessionName="SaaSAuditingSession",
+            ExternalId="auditor-secure-token-xyz"
+        )
+
+class TestFlaskAuthentication(unittest.TestCase):
+    
+    def setUp(self):
+        from app import app
+        app.config['TESTING'] = True
+        self.client = app.test_client()
+
+    def test_login_page_renders(self):
+        response = self.client.get('/login')
+        self.assertEqual(response.status_code, 200)
+        self.assertIn(b"Enter your AWS configuration", response.data)
+
+    def test_unauthenticated_api_redirects(self):
+        response = self.client.get('/api/report')
+        self.assertEqual(response.status_code, 401)
+        data = json.loads(response.data)
+        self.assertEqual(data['error'], "Unauthorized. Please log in.")
+
+    def test_unauthenticated_page_redirects(self):
+        response = self.client.get('/')
+        self.assertEqual(response.status_code, 302)
+        self.assertTrue(response.headers['Location'].endswith('/login'))
+
+    @patch('main.get_aws_client')
+    def test_login_success_keys(self, mock_get_client):
+        # Mock STS client identity validation
+        mock_sts = MagicMock()
+        mock_sts.get_caller_identity.return_value = {"Account": "123456789012"}
+        mock_get_client.return_value = mock_sts
+        
+        response = self.client.post('/login', data={
+            'auth_mode': 'keys',
+            'aws_access_key_id': 'AKIAINSECURE123',
+            'aws_secret_access_key': 'secret_pass_123',
+            'region_name': 'us-east-1'
+        })
+        
+        self.assertEqual(response.status_code, 302)
+        self.assertTrue(response.headers['Location'].endswith('/'))
+        
+        # Verify credentials saved in session cookie
+        with self.client.session_transaction() as sess:
+            self.assertEqual(sess['aws_account_id'], "123456789012")
+            self.assertEqual(sess['aws_creds']['aws_access_key_id'], "AKIAINSECURE123")
+
+    @patch('main.get_aws_client')
+    def test_login_success_role(self, mock_get_client):
+        mock_sts = MagicMock()
+        mock_sts.get_caller_identity.return_value = {"Account": "987654321098"}
+        mock_get_client.return_value = mock_sts
+        
+        response = self.client.post('/login', data={
+            'auth_mode': 'role',
+            'role_arn': 'arn:aws:iam::987654321098:role/TestAuditor',
+            'region_name': 'us-west-2'
+        })
+        
+        self.assertEqual(response.status_code, 302)
+        self.assertTrue(response.headers['Location'].endswith('/'))
+        
+        with self.client.session_transaction() as sess:
+            self.assertEqual(sess['aws_account_id'], "987654321098")
+            self.assertEqual(sess['role_arn'], "arn:aws:iam::987654321098:role/TestAuditor")
+
+    @patch('main.get_aws_client')
+    def test_login_failure(self, mock_get_client):
+        mock_sts = MagicMock()
+        mock_sts.get_caller_identity.side_effect = Exception("Invalid Signature")
+        mock_get_client.return_value = mock_sts
+        
+        response = self.client.post('/login', data={
+            'auth_mode': 'keys',
+            'aws_access_key_id': 'AKIAWRONG',
+            'aws_secret_access_key': 'wrong_secret',
+            'region_name': 'us-east-1'
+        })
+        
+        self.assertEqual(response.status_code, 200)
+        self.assertIn(b"AWS connection failed", response.data)
+
+    def test_logout(self):
+        with self.client.session_transaction() as sess:
+            sess['aws_creds'] = {"aws_access_key_id": "mock"}
+            sess['aws_account_id'] = "123456789012"
+            
+        response = self.client.post('/logout')
+        self.assertEqual(response.status_code, 200)
+        data = json.loads(response.data)
+        self.assertTrue(data['success'])
+        
+        with self.client.session_transaction() as sess:
+            self.assertNotIn('aws_creds', sess)
+            self.assertNotIn('aws_account_id', sess)
+
 if __name__ == '__main__':
     unittest.main()
