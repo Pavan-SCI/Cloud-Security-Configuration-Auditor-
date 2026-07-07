@@ -56,7 +56,6 @@ def login():
             creds["aws_secret_access_key"] = request.form.get('aws_secret_access_key', '').strip()
         elif auth_mode == 'role':
             creds["role_arn"] = request.form.get('role_arn', '').strip()
-            # Optional keys if they want to assume a role via specific IAM credentials
             aws_id = request.form.get('aws_access_key_id', '').strip()
             aws_secret = request.form.get('aws_secret_access_key', '').strip()
             if aws_id and aws_secret:
@@ -70,11 +69,11 @@ def login():
             identity = sts_client.get_caller_identity()
             account_id = identity.get('Account')
             
-            # Authentication successful - store in session cookies
             session['aws_creds'] = creds
             session['aws_account_id'] = account_id
             session['region_name'] = region
             session['role_arn'] = creds.get('role_arn')
+            session['auth_method'] = "Manual Credentials" if auth_mode == 'keys' else "IAM Role Delegation"
             
             print(f"[+] Login successful! Connected to AWS Account: {account_id}")
             return redirect(url_for('index'))
@@ -84,6 +83,112 @@ def login():
             
     return render_template('login.html', error=error)
 
+@app.route('/login/aws')
+def login_aws():
+    """Redirects the user to the AWS Cognito Hosted UI, or to mock Cognito flow locally."""
+    domain = os.environ.get('COGNITO_DOMAIN')
+    client_id = os.environ.get('COGNITO_CLIENT_ID')
+    redirect_uri = os.environ.get('COGNITO_REDIRECT_URI', 'http://127.0.0.1:5000/callback')
+    
+    if domain and client_id:
+        cognito_url = f"https://{domain}/oauth2/authorize?response_type=code&client_id={client_id}&redirect_uri={redirect_uri}&scope=openid"
+        return redirect(cognito_url)
+    else:
+        print("[*] Cognito environment variables not configured. Using Mock Cognito Mode...")
+        return redirect(url_for('login_aws_mock'))
+
+@app.route('/login/aws/mock')
+def login_aws_mock():
+    """Serves the mock Cognito Consent screen."""
+    return render_template('mock_cognito.html')
+
+@app.route('/login/aws/mock/approve', methods=['POST'])
+def login_aws_mock_approve():
+    """Simulates code generation and redirects back to /callback."""
+    return redirect(url_for('callback', code="mock-auth-code-12345"))
+
+@app.route('/callback')
+def callback():
+    """Handles OIDC authentication callback, exchanges code for token, and assumes role."""
+    code = request.args.get('code')
+    if not code:
+        return redirect(url_for('login', error="Authorization code missing from Callback"))
+        
+    domain = os.environ.get('COGNITO_DOMAIN')
+    client_id = os.environ.get('COGNITO_CLIENT_ID')
+    client_secret = os.environ.get('COGNITO_CLIENT_SECRET')
+    redirect_uri = os.environ.get('COGNITO_REDIRECT_URI', 'http://127.0.0.1:5000/callback')
+    role_arn = os.environ.get('COGNITO_ROLE_ARN') or "arn:aws:iam::123456789012:role/MockCognitoSSORole"
+    
+    # 1. Mock Authentication Mode
+    if not domain or not client_id:
+        print("[+] Mock Cognito authentication callback resolved successfully!")
+        session['aws_creds'] = {
+            "role_arn": role_arn,
+            "web_identity_token": "mock-identity-jwt-token-9876",
+            "region_name": "us-east-1"
+        }
+        session['aws_account_id'] = "123456789012"
+        session['region_name'] = "us-east-1"
+        session['role_arn'] = role_arn
+        session['auth_method'] = "OIDC Cognito (Mock)"
+        return redirect(url_for('index'))
+        
+    # 2. Live Cognito Mode (Code Exchange)
+    try:
+        import urllib.request
+        import urllib.parse
+        import base64
+        
+        # Build token exchange request
+        token_url = f"https://{domain}/oauth2/token"
+        data = urllib.parse.urlencode({
+            'grant_type': 'authorization_code',
+            'client_id': client_id,
+            'redirect_uri': redirect_uri,
+            'code': code
+        }).encode('utf-8')
+        
+        req = urllib.request.Request(token_url, data=data, method='POST')
+        req.add_header('Content-Type', 'application/x-www-form-urlencoded')
+        
+        if client_secret:
+            auth_str = f"{client_id}:{client_secret}"
+            b64_auth = base64.b64encode(auth_str.encode('utf-8')).decode('utf-8')
+            req.add_header('Authorization', f"Basic {b64_auth}")
+            
+        with urllib.request.urlopen(req) as res:
+            tokens = json.loads(res.read().decode('utf-8'))
+            id_token = tokens.get('id_token')
+            
+        if not id_token:
+            raise Exception("Cognito token response did not contain id_token.")
+            
+        # Exchange OIDC token for temporary AWS role session credentials via STS
+        sts_client = boto3.client('sts')
+        assumed_role = sts_client.assume_role_with_web_identity(
+            RoleArn=role_arn,
+            RoleSessionName="CognitoSSOAuditingSession",
+            WebIdentityToken=id_token
+        )
+        identity = sts_client.get_caller_identity()
+        account_id = identity.get('Account')
+        
+        session['aws_creds'] = {
+            "role_arn": role_arn,
+            "web_identity_token": id_token,
+            "region_name": "us-east-1"
+        }
+        session['aws_account_id'] = account_id
+        session['region_name'] = "us-east-1"
+        session['role_arn'] = role_arn
+        session['auth_method'] = "OIDC Cognito (Live)"
+        
+        return redirect(url_for('index'))
+    except Exception as e:
+        print(f"[-] OIDC Live Token exchange failed: {e}")
+        return redirect(url_for('login', error=f"OIDC exchange failed: {str(e)}"))
+
 @app.route('/logout', methods=['POST'])
 def logout():
     """Clears AWS credentials session cookies and logs out."""
@@ -91,6 +196,7 @@ def logout():
     session.pop('aws_account_id', None)
     session.pop('region_name', None)
     session.pop('role_arn', None)
+    session.pop('auth_method', None)
     return jsonify({"success": True, "message": "Successfully logged out!"})
 
 @app.route('/')
@@ -140,7 +246,8 @@ def get_report():
         "report": report_data,
         "role_arn": session.get("role_arn"),
         "aws_account_id": session.get("aws_account_id"),
-        "region_name": session.get("region_name")
+        "region_name": session.get("region_name"),
+        "auth_method": session.get("auth_method")
     })
 
 @app.route('/api/scan', methods=['POST'])

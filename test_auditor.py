@@ -367,6 +367,36 @@ class TestKeylessRoleDelegation(unittest.TestCase):
             ExternalId="auditor-secure-token-xyz"
         )
 
+    @patch('boto3.client')
+    def test_get_aws_client_web_identity(self, mock_boto_client):
+        import main
+        mock_sts = MagicMock()
+        mock_sts.assume_role_with_web_identity.return_value = {
+            'Credentials': {
+                'AccessKeyId': 'ASIA_WEB_KEY',
+                'SecretAccessKey': 'WEB_SECRET',
+                'SessionToken': 'WEB_TOKEN'
+            }
+        }
+        
+        def boto_client_side_effect(service_name, **kwargs):
+            if service_name == 'sts':
+                return mock_sts
+            return MagicMock()
+            
+        mock_boto_client.side_effect = boto_client_side_effect
+        
+        main.get_aws_client('s3', creds={
+            "role_arn": "arn:aws:iam::123456789012:role/WebRole",
+            "web_identity_token": "id-token-xyz"
+        })
+        
+        mock_sts.assume_role_with_web_identity.assert_called_once_with(
+            RoleArn="arn:aws:iam::123456789012:role/WebRole",
+            RoleSessionName="CognitoSSOAuditingSession",
+            WebIdentityToken="id-token-xyz"
+        )
+
 class TestFlaskAuthentication(unittest.TestCase):
     
     def setUp(self):
@@ -460,6 +490,32 @@ class TestFlaskAuthentication(unittest.TestCase):
         with self.client.session_transaction() as sess:
             self.assertNotIn('aws_creds', sess)
             self.assertNotIn('aws_account_id', sess)
+
+    def test_login_aws_redirects_to_mock_when_no_domain(self):
+        response = self.client.get('/login/aws')
+        self.assertEqual(response.status_code, 302)
+        self.assertTrue(response.headers['Location'].endswith('/login/aws/mock'))
+
+    def test_mock_consent_renders(self):
+        response = self.client.get('/login/aws/mock')
+        self.assertEqual(response.status_code, 200)
+        self.assertIn(b"AWS Security Configuration Auditor", response.data)
+        self.assertIn(b"Approve & Log In", response.data)
+
+    def test_mock_consent_approval_redirects(self):
+        response = self.client.post('/login/aws/mock/approve')
+        self.assertEqual(response.status_code, 302)
+        self.assertIn('code=mock-auth-code-12345', response.headers['Location'])
+
+    def test_callback_mock_mode_success(self):
+        response = self.client.get('/callback?code=mock-auth-code-12345')
+        self.assertEqual(response.status_code, 302)
+        self.assertTrue(response.headers['Location'].endswith('/'))
+        
+        with self.client.session_transaction() as sess:
+            self.assertEqual(sess['aws_account_id'], "123456789012")
+            self.assertEqual(sess['auth_method'], "OIDC Cognito (Mock)")
+            self.assertEqual(sess['aws_creds']['web_identity_token'], "mock-identity-jwt-token-9876")
 
 if __name__ == '__main__':
     unittest.main()

@@ -15,8 +15,34 @@ def get_aws_client(service_name, creds=None):
     aws_access_key_id = creds.get("aws_access_key_id")
     aws_secret_access_key = creds.get("aws_secret_access_key")
     aws_session_token = creds.get("aws_session_token")
+    web_identity_token = creds.get("web_identity_token")
     
+    if role_arn and web_identity_token:
+        if web_identity_token.startswith("mock-") or "mock" in role_arn.lower():
+            print(f"[*] [Mock SSO Mode] Bypassing STS token exchange. Using local AWS credentials for demo...")
+            return boto3.client(service_name, region_name=region_name)
+            
+        print(f"[*] Assuming Role via Web Identity: '{role_arn}' via STS...")
+        sts_client = boto3.client('sts', region_name=region_name)
+        assumed_role_object = sts_client.assume_role_with_web_identity(
+            RoleArn=role_arn,
+            RoleSessionName="CognitoSSOAuditingSession",
+            WebIdentityToken=web_identity_token
+        )
+        credentials = assumed_role_object['Credentials']
+        return boto3.client(
+            service_name,
+            aws_access_key_id=credentials['AccessKeyId'],
+            aws_secret_access_key=credentials['SecretAccessKey'],
+            aws_session_token=credentials['SessionToken'],
+            region_name=region_name
+        )
+        
     if role_arn:
+        if "mock" in role_arn.lower():
+            print(f"[*] [Mock Role Mode] Bypassing STS AssumeRole. Using local AWS credentials for demo...")
+            return boto3.client(service_name, region_name=region_name)
+            
         print(f"[*] Assuming Role: '{role_arn}' via AWS STS...")
         if aws_access_key_id and aws_secret_access_key:
             sts_client = boto3.client(
