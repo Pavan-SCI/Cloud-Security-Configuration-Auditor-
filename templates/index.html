@@ -252,21 +252,19 @@
             };
         }
 
-        // Fetch report data
+        // Fetch report data and active AWS credentials session info, then run live scan
         function fetchReport() {
             fetch('/api/report')
                 .then(res => res.json())
                 .then(data => {
                     if (data.success) {
-                        if (data.report) {
-                            renderDashboard(data.report);
-                        }
                         updateConnectionStatus(data);
+                        triggerScan();
                     }
                 })
                 .catch(err => {
                     console.log(err.message);
-                    setPlaceholderState("Pending Initial Scan");
+                    triggerScan();
                 });
         }
 
@@ -320,10 +318,11 @@
         }
 
         // Trigger AWS Scan
-        document.getElementById("btn-scan").addEventListener("click", () => {
+        function triggerScan() {
             const btn = document.getElementById("btn-scan");
             btn.disabled = true;
             btn.innerHTML = `<span class="spinner"></span> Scanning AWS...`;
+            setPlaceholderState("Running live compliance audit...");
             
             fetch('/api/scan', { method: 'POST' })
                 .then(res => {
@@ -336,12 +335,15 @@
                 })
                 .catch(err => {
                     showToast(err.message, false);
+                    setPlaceholderState(`Audit failed: ${err.message}`);
                 })
                 .finally(() => {
                     btn.disabled = false;
                     btn.innerHTML = `<span class="icon">🔄</span> Trigger AWS Security Audit`;
                 });
-        });
+        }
+
+        document.getElementById("btn-scan").addEventListener("click", triggerScan);
 
         // Reset Dashboard to initial empty state
         document.getElementById("btn-reset").addEventListener("click", () => {
