@@ -508,13 +508,13 @@ class TestFlaskAuthentication(unittest.TestCase):
         self.assertIn('code=mock-auth-code-12345', response.headers['Location'])
 
     def test_callback_mock_mode_success(self):
-        response = self.client.get('/callback?code=mock-auth-code-12345')
+        response = self.client.get('/callback?code=mock-auth-code-12345&account_id=777788889999')
         self.assertEqual(response.status_code, 302)
         self.assertTrue(response.headers['Location'].endswith('/'))
         
         with self.client.session_transaction() as sess:
-            self.assertEqual(sess['aws_account_id'], "123456789012")
-            self.assertEqual(sess['auth_method'], "OIDC Cognito (Mock)")
+            self.assertEqual(sess['aws_account_id'], "777788889999")
+            self.assertEqual(sess['auth_method'], "OIDC Cognito (Mock: 777788889999)")
             self.assertEqual(sess['aws_creds']['web_identity_token'], "mock-identity-jwt-token-9876")
 
 if __name__ == '__main__':

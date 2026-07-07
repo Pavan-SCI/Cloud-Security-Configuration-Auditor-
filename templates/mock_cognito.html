@@ -145,16 +145,21 @@
                     </div>
                 </div>
 
-                <div class="info-box">
-                    ℹ️ <strong>Mock Demo Account Target:</strong><br>
-                    AWS Account: <code>123456789012</code> (Mock Cognito SSO Role)
+                <div class="info-box" style="display: flex; flex-direction: column; gap: 8px;">
+                    <label for="mock_account_id" style="font-weight: 600; color: var(--neon-blue);">Select Target AWS Account to Audit:</label>
+                    <select id="mock_account_id" style="background: rgba(0,0,0,0.3); border: 1px solid var(--border-color); color: var(--text-main); padding: 8px; border-radius: 6px; font-family: inherit; font-size: 13px; outline: none; width: 100%;">
+                        <option value="111122223333" selected>Development Account (111122223333)</option>
+                        <option value="444455556666">Staging Account (444455556666)</option>
+                        <option value="777788889999">Production Account (777788889999)</option>
+                    </select>
                 </div>
             </div>
 
             <div class="btn-group">
                 <a href="/login" class="btn btn-tertiary" style="text-decoration: none; text-align: center; line-height: 24px;">Cancel</a>
-                <form action="/login/aws/mock/approve" method="POST">
-                    <button type="submit" class="btn btn-cf">Approve & Log In</button>
+                <form action="/login/aws/mock/approve" method="POST" id="approve-form">
+                    <input type="hidden" name="selected_account" id="selected_account">
+                    <button type="submit" class="btn btn-cf" onclick="document.getElementById('selected_account').value = document.getElementById('mock_account_id').value">Approve & Log In</button>
                 </form>
             </div>
         </div>

@@ -105,12 +105,14 @@ def login_aws_mock():
 @app.route('/login/aws/mock/approve', methods=['POST'])
 def login_aws_mock_approve():
     """Simulates code generation and redirects back to /callback."""
-    return redirect(url_for('callback', code="mock-auth-code-12345"))
+    selected_account = request.form.get('selected_account', '123456789012')
+    return redirect(url_for('callback', code="mock-auth-code-12345", account_id=selected_account))
 
 @app.route('/callback')
 def callback():
     """Handles OIDC authentication callback, exchanges code for token, and assumes role."""
     code = request.args.get('code')
+    account_id_param = request.args.get('account_id', '123456789012')
     if not code:
         return redirect(url_for('login', error="Authorization code missing from Callback"))
         
@@ -118,20 +120,20 @@ def callback():
     client_id = os.environ.get('COGNITO_CLIENT_ID')
     client_secret = os.environ.get('COGNITO_CLIENT_SECRET')
     redirect_uri = os.environ.get('COGNITO_REDIRECT_URI', 'http://127.0.0.1:5000/callback')
-    role_arn = os.environ.get('COGNITO_ROLE_ARN') or "arn:aws:iam::123456789012:role/MockCognitoSSORole"
+    role_arn = os.environ.get('COGNITO_ROLE_ARN') or f"arn:aws:iam::{account_id_param}:role/MockCognitoSSORole"
     
     # 1. Mock Authentication Mode
     if not domain or not client_id:
-        print("[+] Mock Cognito authentication callback resolved successfully!")
+        print(f"[+] Mock Cognito authentication callback resolved successfully for account {account_id_param}!")
         session['aws_creds'] = {
             "role_arn": role_arn,
             "web_identity_token": "mock-identity-jwt-token-9876",
             "region_name": "us-east-1"
         }
-        session['aws_account_id'] = "123456789012"
+        session['aws_account_id'] = account_id_param
         session['region_name'] = "us-east-1"
         session['role_arn'] = role_arn
-        session['auth_method'] = "OIDC Cognito (Mock)"
+        session['auth_method'] = f"OIDC Cognito (Mock: {account_id_param})"
         return redirect(url_for('index'))
         
     # 2. Live Cognito Mode (Code Exchange)
