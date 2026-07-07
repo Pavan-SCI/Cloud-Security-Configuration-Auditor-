@@ -51,12 +51,22 @@
 /* Base resets in light theme */
 [data-theme="light"] input,
 [data-theme="light"] select,
-[data-theme="light"] option,
-[data-theme="light"] table,
-[data-theme="light"] th,
-[data-theme="light"] td {
-    background-color: rgba(255, 255, 255, 0.8) !important;
+[data-theme="light"] option {
+    background-color: rgba(255, 255, 255, 0.95) !important;
     color: #0f172a !important;
+    border: 1px solid rgba(15, 23, 42, 0.15) !important;
+}
+
+[data-theme="light"] table,
+[data-theme="light"] th {
+    background-color: rgba(255, 255, 255, 0.9) !important;
+    color: #0f172a !important;
+}
+
+[data-theme="light"] td {
+    background-color: transparent !important;
+    color: #0f172a !important;
+    border-bottom: 1px solid rgba(15, 23, 42, 0.08) !important;
 }
 
 [data-theme="light"] .placeholder-text {
@@ -65,6 +75,32 @@
 
 [data-theme="light"] .logo-area h1 span {
     color: #0284c7 !important;
+}
+
+[data-theme="light"] .login-logo h1 {
+    background: linear-gradient(135deg, #0f172a 0%, #1e1b4b 100%) !important;
+    -webkit-background-clip: text !important;
+    -webkit-text-fill-color: transparent !important;
+}
+
+[data-theme="light"] .secure-glow {
+    border-color: rgba(21, 128, 61, 0.25) !important;
+    box-shadow: 0 8px 32px 0 rgba(15, 23, 42, 0.04), inset 0 0 15px rgba(21, 128, 61, 0.04) !important;
+}
+
+[data-theme="light"] .secure-glow .metric-value {
+    color: #15803d !important;
+    text-shadow: none !important;
+}
+
+[data-theme="light"] .danger-glow {
+    border-color: rgba(185, 28, 28, 0.25) !important;
+    box-shadow: 0 8px 32px 0 rgba(15, 23, 42, 0.04), inset 0 0 15px rgba(185, 28, 28, 0.04) !important;
+}
+
+[data-theme="light"] .danger-glow .metric-value {
+    color: #b91c1c !important;
+    text-shadow: none !important;
 }
 
 * {
