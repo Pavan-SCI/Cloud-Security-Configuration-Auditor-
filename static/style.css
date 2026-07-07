@@ -77,6 +77,26 @@
     color: #0284c7 !important;
 }
 
+[data-theme="light"] .logo-area h1 {
+    background: linear-gradient(135deg, #0f172a 0%, #1e1b4b 100%) !important;
+    -webkit-background-clip: text !important;
+    -webkit-text-fill-color: transparent !important;
+}
+
+[data-theme="light"] .subtitle {
+    color: #64748b !important;
+}
+
+[data-theme="light"] .scan-status-panel {
+    background: rgba(15, 23, 42, 0.05) !important;
+    border-color: rgba(15, 23, 42, 0.1) !important;
+    color: #0f172a !important;
+}
+
+[data-theme="light"] .glow {
+    opacity: 0.1 !important;
+}
+
 [data-theme="light"] .login-logo h1 {
     background: linear-gradient(135deg, #0f172a 0%, #1e1b4b 100%) !important;
     -webkit-background-clip: text !important;
@@ -251,6 +271,7 @@ body {
 .status-text {
     font-size: 13px;
     font-weight: 500;
+    white-space: nowrap;
 }
 
 /* Layout Grid */
