@@ -15,6 +15,13 @@ app.secret_key = 'sec-auditor-key-xyz'
 
 REPORT_FILENAME = "security_report.json"
 
+def get_user_report_filename():
+    """Generates a unique security report filename based on the current session's AWS Account ID."""
+    account_id = session.get('aws_account_id', 'default')
+    # Filter only alphanumeric characters to prevent directory traversal
+    safe_account_id = "".join([c for c in str(account_id) if c.isalnum()])
+    return f"security_report_{safe_account_id}.json"
+
 # Thread-safe queues for connected clients
 clients = []
 
@@ -228,12 +235,13 @@ def sse_stream():
 @login_required
 def get_report():
     """Retrieves the current security report findings and active connection metadata."""
-    report_exists = os.path.exists(REPORT_FILENAME)
+    filename = get_user_report_filename()
+    report_exists = os.path.exists(filename)
     
     report_data = None
     if report_exists:
         try:
-            with open(REPORT_FILENAME, 'r') as f:
+            with open(filename, 'r') as f:
                 report_data = json.load(f)
         except Exception as e:
             return jsonify({
@@ -256,7 +264,8 @@ def run_scan():
     """Triggers the AWS Security Audit scan dynamically using session credentials."""
     try:
         creds = session.get('aws_creds')
-        report_data = main.run_audit_and_save(REPORT_FILENAME, creds)
+        filename = get_user_report_filename()
+        report_data = main.run_audit_and_save(filename, creds)
         announce("report_updated", report_data)
         return jsonify({
             "success": True,
@@ -276,9 +285,10 @@ def send_notification():
     data = request.json or {}
     webhook_url = data.get("webhook_url")
     
+    filename = get_user_report_filename()
     success, message = notifier.trigger_slack_notification(
         webhook_url=webhook_url,
-        report_filename=REPORT_FILENAME
+        report_filename=filename
     )
     
     return jsonify({
@@ -313,8 +323,12 @@ def aws_webhook_receiver():
         # Pull credentials from active session if available
         creds = session.get('aws_creds')
         
-        # Run a fresh AWS audit
-        report_data = main.run_audit_and_save(REPORT_FILENAME, creds)
+        # Run a fresh AWS audit scoped to the Event's account ID
+        account_id = event.get("account", "default")
+        safe_account_id = "".join([c for c in str(account_id) if c.isalnum()])
+        filename = f"security_report_{safe_account_id}.json"
+        
+        report_data = main.run_audit_and_save(filename, creds)
         
         # Check if the specific updated resource has a security warning
         findings = notifier.analyze_findings(report_data)
@@ -335,7 +349,7 @@ def aws_webhook_receiver():
                 
         if has_warning:
             print(f"[!] Warning detected in real-time: {warning_msg}")
-            notifier.trigger_slack_notification(report_filename=REPORT_FILENAME)
+            notifier.trigger_slack_notification(report_filename=filename)
             
         # Announce update to all open dashboards
         announce("aws_security_event", {
