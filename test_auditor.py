@@ -517,5 +517,45 @@ class TestFlaskAuthentication(unittest.TestCase):
             self.assertEqual(sess['auth_method'], "OIDC Cognito (Mock: 777788889999)")
             self.assertEqual(sess['aws_creds']['web_identity_token'], "mock-identity-jwt-token-9876")
 
+    def test_login_google_redirects_to_mock_when_no_domain(self):
+        response = self.client.get('/login/google')
+        self.assertEqual(response.status_code, 302)
+        self.assertTrue(response.headers['Location'].endswith('/login/aws/mock'))
+
+    @patch('boto3.Session')
+    def test_login_success_profile(self, mock_session_class):
+        mock_session_instance = MagicMock()
+        mock_sts = MagicMock()
+        mock_sts.get_caller_identity.return_value = {"Account": "555566667777"}
+        mock_session_instance.client.return_value = mock_sts
+        mock_session_class.return_value = mock_session_instance
+        
+        response = self.client.post('/login', data={
+            'auth_mode': 'profile',
+            'aws_profile': 'my-custom-profile',
+            'region_name': 'us-east-1'
+        })
+        
+        self.assertEqual(response.status_code, 302)
+        self.assertTrue(response.headers['Location'].endswith('/'))
+        
+        with self.client.session_transaction() as sess:
+            self.assertEqual(sess['aws_account_id'], "555566667777")
+            self.assertEqual(sess['auth_method'], "Local Profile: my-custom-profile")
+            self.assertEqual(sess['aws_creds']['aws_profile'], "my-custom-profile")
+
+    @patch('boto3.Session')
+    def test_login_failure_profile(self, mock_session_class):
+        mock_session_class.side_effect = Exception("ProfileNotFound")
+        
+        response = self.client.post('/login', data={
+            'auth_mode': 'profile',
+            'aws_profile': 'wrong-profile',
+            'region_name': 'us-east-1'
+        })
+        
+        self.assertEqual(response.status_code, 200)
+        self.assertIn(b"AWS connection failed", response.data)
+
 if __name__ == '__main__':
     unittest.main()

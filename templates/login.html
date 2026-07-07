@@ -168,11 +168,16 @@
             </div>
             {% endif %}
 
-            <a href="/login/aws" class="btn btn-cf" style="text-decoration: none; text-align: center; font-weight: 700; display: flex; align-items: center; justify-content: center; gap: 10px; margin-bottom: 5px;">
-                <span style="font-size: 18px;">☁️</span> Login with AWS Single Sign-On
-            </a>
+            <div style="display: flex; flex-direction: column; gap: 8px; margin-bottom: 5px;">
+                <a href="/login/aws" class="btn btn-cf" style="text-decoration: none; text-align: center; font-weight: 700; display: flex; align-items: center; justify-content: center; gap: 10px; margin-bottom: 0;">
+                    <span style="font-size: 18px;">☁️</span> Login with AWS Single Sign-On
+                </a>
+                <a href="/login/google" class="btn btn-secondary" style="text-decoration: none; text-align: center; font-weight: 700; display: flex; align-items: center; justify-content: center; gap: 10px; border-color: #ea4335; color: #fff; background: rgba(234, 67, 53, 0.15);">
+                    <span style="font-size: 18px;">🔴</span> Login with Google
+                </a>
+            </div>
 
-            <div style="display: flex; align-items: center; gap: 10px; color: var(--text-muted); font-size: 11px; justify-content: center; margin: -5px 0 10px 0;">
+            <div style="display: flex; align-items: center; gap: 10px; color: var(--text-muted); font-size: 11px; justify-content: center; margin: 10px 0;">
                 <hr style="flex: 1; border: none; border-top: 1px solid var(--border-color);">
                 <span>OR CONNECT MANUALLY</span>
                 <hr style="flex: 1; border: none; border-top: 1px solid var(--border-color);">
@@ -180,8 +185,9 @@
 
             <!-- Tabs -->
             <div class="login-tabs">
-                <button type="button" class="tab-btn active" onclick="switchTab('keys')">🔑 Access Keys Mode</button>
-                <button type="button" class="tab-btn" onclick="switchTab('role')">🚀 IAM Role Mode</button>
+                <button type="button" class="tab-btn active" onclick="switchTab('keys')">🔑 Access Keys</button>
+                <button type="button" class="tab-btn" onclick="switchTab('role')">🚀 IAM Role</button>
+                <button type="button" class="tab-btn" onclick="switchTab('profile')">💻 CLI Profile</button>
             </div>
 
             <form action="/login" method="POST" id="login-form" style="display: flex; flex-direction: column; gap: 10px;">
@@ -235,6 +241,17 @@
                     </div>
                 </div>
 
+                <!-- CLI Profile Field -->
+                <div id="fields-profile" style="display: none;">
+                    <div class="form-group">
+                        <label for="aws_profile">AWS CLI Profile Name</label>
+                        <input type="text" id="aws_profile" name="aws_profile" placeholder="e.g. default, personal, dev-profile">
+                        <p class="helper-text">
+                            Enter the named profile configured on your local machine via <code>aws configure --profile &lt;name&gt;</code>.
+                        </p>
+                    </div>
+                </div>
+
                 <button type="submit" class="btn btn-primary" style="margin-top: 15px; width: 100%;">
                     🔄 Verify AWS & Scan Dashboard
                 </button>
@@ -249,30 +266,47 @@
 
             // Toggle Tab Buttons
             const buttons = document.querySelectorAll(".tab-btn");
+            buttons.forEach(btn => btn.classList.remove("active"));
+            
             if (mode === 'keys') {
                 buttons[0].classList.add("active");
-                buttons[1].classList.remove("active");
                 
                 // Toggle Fields
                 document.getElementById("fields-keys").style.display = "block";
                 document.getElementById("fields-role").style.display = "none";
+                document.getElementById("fields-profile").style.display = "none";
                 
                 // Handle Required constraints
                 document.getElementById("aws_access_key_id").required = true;
                 document.getElementById("aws_secret_access_key").required = true;
                 document.getElementById("role_arn").required = false;
-            } else {
-                buttons[0].classList.remove("active");
+                document.getElementById("aws_profile").required = false;
+            } else if (mode === 'role') {
                 buttons[1].classList.add("active");
                 
                 // Toggle Fields
                 document.getElementById("fields-keys").style.display = "none";
                 document.getElementById("fields-role").style.display = "block";
+                document.getElementById("fields-profile").style.display = "none";
                 
                 // Handle Required constraints
                 document.getElementById("aws_access_key_id").required = false;
                 document.getElementById("aws_secret_access_key").required = false;
                 document.getElementById("role_arn").required = true;
+                document.getElementById("aws_profile").required = false;
+            } else if (mode === 'profile') {
+                buttons[2].classList.add("active");
+                
+                // Toggle Fields
+                document.getElementById("fields-keys").style.display = "none";
+                document.getElementById("fields-role").style.display = "none";
+                document.getElementById("fields-profile").style.display = "block";
+                
+                // Handle Required constraints
+                document.getElementById("aws_access_key_id").required = false;
+                document.getElementById("aws_secret_access_key").required = false;
+                document.getElementById("role_arn").required = false;
+                document.getElementById("aws_profile").required = true;
             }
         }
     </script>

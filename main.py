@@ -16,7 +16,13 @@ def get_aws_client(service_name, creds=None):
     aws_secret_access_key = creds.get("aws_secret_access_key")
     aws_session_token = creds.get("aws_session_token")
     web_identity_token = creds.get("web_identity_token")
+    aws_profile = creds.get("aws_profile")
     
+    if aws_profile:
+        print(f"[*] Initializing AWS Client '{service_name}' using Named CLI Profile: '{aws_profile}'...")
+        session = boto3.Session(profile_name=aws_profile)
+        return session.client(service_name, region_name=region_name)
+        
     if role_arn and web_identity_token:
         if web_identity_token.startswith("mock-") or "mock" in role_arn.lower():
             print(f"[*] [Mock SSO Mode] Bypassing STS token exchange. Using local AWS credentials for demo...")

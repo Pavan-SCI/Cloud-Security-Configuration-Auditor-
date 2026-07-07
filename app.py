@@ -61,6 +61,8 @@ def login():
             if aws_id and aws_secret:
                 creds["aws_access_key_id"] = aws_id
                 creds["aws_secret_access_key"] = aws_secret
+        elif auth_mode == 'profile':
+            creds["aws_profile"] = request.form.get('aws_profile', '').strip()
                 
         # Validate credentials with AWS STS
         try:
@@ -73,7 +75,13 @@ def login():
             session['aws_account_id'] = account_id
             session['region_name'] = region
             session['role_arn'] = creds.get('role_arn')
-            session['auth_method'] = "Manual Credentials" if auth_mode == 'keys' else "IAM Role Delegation"
+            
+            if auth_mode == 'keys':
+                session['auth_method'] = "Manual Credentials"
+            elif auth_mode == 'role':
+                session['auth_method'] = "IAM Role Delegation"
+            elif auth_mode == 'profile':
+                session['auth_method'] = f"Local Profile: {creds['aws_profile']}"
             
             print(f"[+] Login successful! Connected to AWS Account: {account_id}")
             return redirect(url_for('index'))
@@ -95,6 +103,20 @@ def login_aws():
         return redirect(cognito_url)
     else:
         print("[*] Cognito environment variables not configured. Using Mock Cognito Mode...")
+        return redirect(url_for('login_aws_mock'))
+
+@app.route('/login/google')
+def login_google():
+    """Redirects to Cognito authorization endpoint configured with Google social identity provider."""
+    domain = os.environ.get('COGNITO_DOMAIN')
+    client_id = os.environ.get('COGNITO_CLIENT_ID')
+    redirect_uri = os.environ.get('COGNITO_REDIRECT_URI', 'http://127.0.0.1:5000/callback')
+    
+    if domain and client_id:
+        cognito_url = f"https://{domain}/oauth2/authorize?identity_provider=Google&response_type=code&client_id={client_id}&redirect_uri={redirect_uri}&scope=openid"
+        return redirect(cognito_url)
+    else:
+        print("[*] Cognito environment variables not configured. Using Mock Cognito Mode for Google...")
         return redirect(url_for('login_aws_mock'))
 
 @app.route('/login/aws/mock')
