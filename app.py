@@ -11,7 +11,7 @@ import main
 import notifier
 
 app = Flask(__name__, template_folder='templates', static_folder='static')
-app.secret_key = 'sec-auditor-key-xyz'
+app.secret_key = os.environ.get('FLASK_SECRET_KEY', 'sec-auditor-key-xyz')
 
 REPORT_FILENAME = "security_report.json"
 
