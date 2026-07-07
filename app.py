@@ -61,8 +61,6 @@ def login():
             if aws_id and aws_secret:
                 creds["aws_access_key_id"] = aws_id
                 creds["aws_secret_access_key"] = aws_secret
-        elif auth_mode == 'profile':
-            creds["aws_profile"] = request.form.get('aws_profile', '').strip()
                 
         # Validate credentials with AWS STS
         try:
@@ -75,13 +73,7 @@ def login():
             session['aws_account_id'] = account_id
             session['region_name'] = region
             session['role_arn'] = creds.get('role_arn')
-            
-            if auth_mode == 'keys':
-                session['auth_method'] = "Manual Credentials"
-            elif auth_mode == 'role':
-                session['auth_method'] = "IAM Role Delegation"
-            elif auth_mode == 'profile':
-                session['auth_method'] = f"Local Profile: {creds['aws_profile']}"
+            session['auth_method'] = "Manual Credentials" if auth_mode == 'keys' else "IAM Role Delegation"
             
             print(f"[+] Login successful! Connected to AWS Account: {account_id}")
             return redirect(url_for('index'))
@@ -105,20 +97,6 @@ def login_aws():
         print("[*] Cognito environment variables not configured. Using Mock Cognito Mode...")
         return redirect(url_for('login_aws_mock'))
 
-@app.route('/login/google')
-def login_google():
-    """Redirects to Cognito authorization endpoint configured with Google social identity provider."""
-    domain = os.environ.get('COGNITO_DOMAIN')
-    client_id = os.environ.get('COGNITO_CLIENT_ID')
-    redirect_uri = os.environ.get('COGNITO_REDIRECT_URI', 'http://127.0.0.1:5000/callback')
-    
-    if domain and client_id:
-        cognito_url = f"https://{domain}/oauth2/authorize?identity_provider=Google&response_type=code&client_id={client_id}&redirect_uri={redirect_uri}&scope=openid"
-        return redirect(cognito_url)
-    else:
-        print("[*] Cognito environment variables not configured. Using Mock Cognito Mode for Google...")
-        return redirect(url_for('login_aws_mock'))
-
 @app.route('/login/aws/mock')
 def login_aws_mock():
     """Serves the mock Cognito Consent screen."""
@@ -127,14 +105,12 @@ def login_aws_mock():
 @app.route('/login/aws/mock/approve', methods=['POST'])
 def login_aws_mock_approve():
     """Simulates code generation and redirects back to /callback."""
-    selected_account = request.form.get('selected_account', '123456789012')
-    return redirect(url_for('callback', code="mock-auth-code-12345", account_id=selected_account))
+    return redirect(url_for('callback', code="mock-auth-code-12345"))
 
 @app.route('/callback')
 def callback():
     """Handles OIDC authentication callback, exchanges code for token, and assumes role."""
     code = request.args.get('code')
-    account_id_param = request.args.get('account_id', '123456789012')
     if not code:
         return redirect(url_for('login', error="Authorization code missing from Callback"))
         
@@ -142,20 +118,20 @@ def callback():
     client_id = os.environ.get('COGNITO_CLIENT_ID')
     client_secret = os.environ.get('COGNITO_CLIENT_SECRET')
     redirect_uri = os.environ.get('COGNITO_REDIRECT_URI', 'http://127.0.0.1:5000/callback')
-    role_arn = os.environ.get('COGNITO_ROLE_ARN') or f"arn:aws:iam::{account_id_param}:role/MockCognitoSSORole"
+    role_arn = os.environ.get('COGNITO_ROLE_ARN') or "arn:aws:iam::123456789012:role/MockCognitoSSORole"
     
     # 1. Mock Authentication Mode
     if not domain or not client_id:
-        print(f"[+] Mock Cognito authentication callback resolved successfully for account {account_id_param}!")
+        print("[+] Mock Cognito authentication callback resolved successfully!")
         session['aws_creds'] = {
             "role_arn": role_arn,
             "web_identity_token": "mock-identity-jwt-token-9876",
             "region_name": "us-east-1"
         }
-        session['aws_account_id'] = account_id_param
+        session['aws_account_id'] = "123456789012"
         session['region_name'] = "us-east-1"
         session['role_arn'] = role_arn
-        session['auth_method'] = f"OIDC Cognito (Mock: {account_id_param})"
+        session['auth_method'] = "OIDC Cognito (Mock)"
         return redirect(url_for('index'))
         
     # 2. Live Cognito Mode (Code Exchange)
@@ -381,6 +357,131 @@ def aws_webhook_receiver():
             "success": False,
             "error": f"Webhook processing error: {str(e)}"
         }), 500
+
+@app.route('/api/remediate/s3', methods=['POST'])
+@login_required
+def remediate_s3():
+    """Remediates S3 public bucket by enabling Public Access Block configuration."""
+    try:
+        data = request.json or {}
+        bucket_name = data.get("bucket_name")
+        if not bucket_name:
+            return jsonify({"success": False, "error": "Missing bucket_name parameter"}), 400
+            
+        creds = session.get('aws_creds') or {}
+        role_arn = creds.get("role_arn", "")
+        is_mock = "mock" in role_arn.lower() or not creds
+        
+        if is_mock:
+            print(f"[*] [Mock Mode] Remediating S3 Bucket '{bucket_name}'...")
+            return jsonify({
+                "success": True,
+                "message": f"[Mock Mode] Successfully secured S3 Bucket '{bucket_name}'! Public Access Block is enabled."
+            })
+            
+        s3 = main.get_aws_client('s3', creds)
+        s3.put_public_access_block(
+            Bucket=bucket_name,
+            PublicAccessBlockConfiguration={
+                'BlockPublicAcls': True,
+                'IgnorePublicAcls': True,
+                'BlockPublicPolicy': True,
+                'RestrictPublicBuckets': True
+            }
+        )
+        return jsonify({
+            "success": True,
+            "message": f"Successfully secured S3 Bucket '{bucket_name}'! Public Access Block is enabled."
+        })
+    except Exception as e:
+        return jsonify({"success": False, "error": str(e)}), 500
+
+@app.route('/api/remediate/iam/quarantine', methods=['POST'])
+@login_required
+def remediate_iam_quarantine():
+    """Quarantines IAM user by attaching inline DenyAllExceptMFA policy."""
+    try:
+        data = request.json or {}
+        username = data.get("username")
+        if not username:
+            return jsonify({"success": False, "error": "Missing username parameter"}), 400
+            
+        creds = session.get('aws_creds') or {}
+        role_arn = creds.get("role_arn", "")
+        is_mock = "mock" in role_arn.lower() or not creds
+        
+        if is_mock:
+            print(f"[*] [Mock Mode] Quarantining IAM User '{username}'...")
+            return jsonify({
+                "success": True,
+                "message": f"[Mock Mode] Successfully quarantined IAM User '{username}'! Attached DenyAllExceptMFA inline policy."
+            })
+            
+        iam = main.get_aws_client('iam', creds)
+        policy_doc = {
+            "Version": "2012-10-17",
+            "Statement": [
+                {
+                    "Sid": "DenyAllExceptMFA",
+                    "Effect": "Deny",
+                    "NotAction": [
+                        "iam:CreateVirtualMFADevice",
+                        "iam:EnableMFADevice",
+                        "iam:ResyncMFADevice",
+                        "iam:ListVirtualMFADevices",
+                        "iam:ListMFADevices",
+                        "iam:GetUser"
+                    ],
+                    "Resource": "*"
+                }
+            ]
+        }
+        iam.put_user_policy(
+            UserName=username,
+            PolicyName="MFAQuarantinePolicy",
+            PolicyDocument=json.dumps(policy_doc)
+        )
+        return jsonify({
+            "success": True,
+            "message": f"Successfully quarantined IAM User '{username}'! Attached DenyAllExceptMFA inline policy."
+        })
+    except Exception as e:
+        return jsonify({"success": False, "error": str(e)}), 500
+
+@app.route('/api/remediate/iam/deactivate', methods=['POST'])
+@login_required
+def remediate_iam_deactivate():
+    """Deactivates specific access key for an IAM user."""
+    try:
+        data = request.json or {}
+        username = data.get("username")
+        access_key_id = data.get("access_key_id")
+        if not username or not access_key_id:
+            return jsonify({"success": False, "error": "Missing username or access_key_id parameters"}), 400
+            
+        creds = session.get('aws_creds') or {}
+        role_arn = creds.get("role_arn", "")
+        is_mock = "mock" in role_arn.lower() or not creds
+        
+        if is_mock:
+            print(f"[*] [Mock Mode] Deactivating Access Key '{access_key_id}' for user '{username}'...")
+            return jsonify({
+                "success": True,
+                "message": f"[Mock Mode] Successfully deactivated Access Key '{access_key_id}' for user '{username}'."
+            })
+            
+        iam = main.get_aws_client('iam', creds)
+        iam.update_access_key(
+            UserName=username,
+            AccessKeyId=access_key_id,
+            Status="Inactive"
+        )
+        return jsonify({
+            "success": True,
+            "message": f"Successfully deactivated Access Key '{access_key_id}' for user '{username}'."
+        })
+    except Exception as e:
+        return jsonify({"success": False, "error": str(e)}), 500
 
 if __name__ == '__main__':
     app.run(debug=True, host='127.0.0.1', port=5000)

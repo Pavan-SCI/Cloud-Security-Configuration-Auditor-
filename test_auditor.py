@@ -550,5 +550,95 @@ class TestFlaskAuthentication(unittest.TestCase):
             self.assertEqual(sess['auth_method'], "OIDC Cognito (Mock)")
             self.assertEqual(sess['aws_creds']['web_identity_token'], "mock-identity-jwt-token-9876")
 
+class TestRemediationAPI(unittest.TestCase):
+    def setUp(self):
+        from app import app
+        app.config['TESTING'] = True
+        self.client = app.test_client()
+
+    def test_unauthenticated_remediation_denied(self):
+        # S3 endpoint
+        r1 = self.client.post('/api/remediate/s3', json={"bucket_name": "test"})
+        self.assertEqual(r1.status_code, 401)
+        
+        # IAM Quarantine endpoint
+        r2 = self.client.post('/api/remediate/iam/quarantine', json={"username": "test"})
+        self.assertEqual(r2.status_code, 401)
+        
+        # IAM Deactivate key endpoint
+        r3 = self.client.post('/api/remediate/iam/deactivate', json={"username": "test", "access_key_id": "testkey"})
+        self.assertEqual(r3.status_code, 401)
+
+    @patch('main.get_aws_client')
+    def test_remediate_s3_mock_mode(self, mock_get_client):
+        # Set session to mock mode
+        with self.client.session_transaction() as sess:
+            sess['aws_creds'] = {"role_arn": "arn:aws:iam::123456789012:role/mock-role"}
+            sess['aws_account_id'] = "123456789012"
+            
+        response = self.client.post('/api/remediate/s3', json={"bucket_name": "test-mock-bucket"})
+        self.assertEqual(response.status_code, 200)
+        data = json.loads(response.data)
+        self.assertTrue(data['success'])
+        self.assertIn("[Mock Mode]", data['message'])
+
+    @patch('main.get_aws_client')
+    def test_remediate_s3_live_mode(self, mock_get_client):
+        # Mock S3 client
+        mock_s3 = MagicMock()
+        mock_get_client.return_value = mock_s3
+        
+        with self.client.session_transaction() as sess:
+            sess['aws_creds'] = {"role_arn": "arn:aws:iam::123456789012:role/LiveRole"}
+            sess['aws_account_id'] = "123456789012"
+            
+        response = self.client.post('/api/remediate/s3', json={"bucket_name": "test-live-bucket"})
+        self.assertEqual(response.status_code, 200)
+        data = json.loads(response.data)
+        self.assertTrue(data['success'])
+        self.assertIn("Successfully secured S3 Bucket", data['message'])
+        mock_s3.put_public_access_block.assert_called_once()
+
+    @patch('main.get_aws_client')
+    def test_remediate_quarantine_live_mode(self, mock_get_client):
+        # Mock IAM client
+        mock_iam = MagicMock()
+        mock_get_client.return_value = mock_iam
+        
+        with self.client.session_transaction() as sess:
+            sess['aws_creds'] = {"role_arn": "arn:aws:iam::123456789012:role/LiveRole"}
+            sess['aws_account_id'] = "123456789012"
+            
+        response = self.client.post('/api/remediate/iam/quarantine', json={"username": "test-user"})
+        self.assertEqual(response.status_code, 200)
+        data = json.loads(response.data)
+        self.assertTrue(data['success'])
+        self.assertIn("Successfully quarantined IAM User", data['message'])
+        mock_iam.put_user_policy.assert_called_once()
+
+    @patch('main.get_aws_client')
+    def test_remediate_deactivate_live_mode(self, mock_get_client):
+        # Mock IAM client
+        mock_iam = MagicMock()
+        mock_get_client.return_value = mock_iam
+        
+        with self.client.session_transaction() as sess:
+            sess['aws_creds'] = {"role_arn": "arn:aws:iam::123456789012:role/LiveRole"}
+            sess['aws_account_id'] = "123456789012"
+            
+        response = self.client.post('/api/remediate/iam/deactivate', json={
+            "username": "test-user",
+            "access_key_id": "AKIA12345"
+        })
+        self.assertEqual(response.status_code, 200)
+        data = json.loads(response.data)
+        self.assertTrue(data['success'])
+        self.assertIn("Successfully deactivated Access Key", data['message'])
+        mock_iam.update_access_key.assert_called_once_with(
+            UserName="test-user",
+            AccessKeyId="AKIA12345",
+            Status="Inactive"
+        )
+
 if __name__ == '__main__':
     unittest.main()

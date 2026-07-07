@@ -129,6 +129,23 @@ def format_slack_message(findings):
             }
         })
         
+        mfa_buttons = []
+        for user in findings["mfa_disabled"][:3]:
+            mfa_buttons.append({
+                "type": "button",
+                "text": {
+                    "type": "plain_text",
+                    "text": f"🛑 Quarantine '{user[:12]}'"
+                },
+                "value": user,
+                "action_id": f"remediate_quarantine_{user[:15]}"
+            })
+        if mfa_buttons:
+            blocks.append({
+                "type": "actions",
+                "elements": mfa_buttons
+            })
+        
     # Old Access Keys Warnings
     if findings["old_keys"]:
         has_gaps = True
@@ -144,6 +161,23 @@ def format_slack_message(findings):
             }
         })
         
+        key_buttons = []
+        for key in findings["old_keys"][:3]:
+            key_buttons.append({
+                "type": "button",
+                "text": {
+                    "type": "plain_text",
+                    "text": f"🔑 Disable Key '{key['AccessKeyId'][:8]}'"
+                },
+                "value": f"{key['UserName']}:{key['AccessKeyId']}",
+                "action_id": f"remediate_deactivate_{key['AccessKeyId'][:15]}"
+            })
+        if key_buttons:
+            blocks.append({
+                "type": "actions",
+                "elements": key_buttons
+            })
+        
     # Public S3 Buckets Warnings
     if findings["public_s3"]:
         has_gaps = True
@@ -155,6 +189,23 @@ def format_slack_message(findings):
                 "text": f"❌ *Public S3 Buckets Detected*\n{s3_text}"
             }
         })
+        
+        s3_buttons = []
+        for bucket in findings["public_s3"][:3]:
+            s3_buttons.append({
+                "type": "button",
+                "text": {
+                    "type": "plain_text",
+                    "text": f"🔒 Secure '{bucket[:12]}'"
+                },
+                "value": bucket,
+                "action_id": f"remediate_s3_{bucket[:15]}"
+            })
+        if s3_buttons:
+            blocks.append({
+                "type": "actions",
+                "elements": s3_buttons
+            })
         
     # S3 Extra Data Protection Warnings
     if findings.get("unencrypted_s3") or findings.get("unversioned_s3"):

@@ -507,22 +507,33 @@
             } else {
                 let html = "";
                 iamAudit.forEach(user => {
-                    const mfaClass = user.MFAEnabled ? "badge success" : "badge danger";
-                    const mfaText = user.MFAEnabled ? "Active" : "Disabled";
+                    let mfaClass = user.MFAEnabled ? "badge success" : "badge danger";
+                    let mfaText = user.MFAEnabled ? "Active" : "Disabled";
                     
                     if (!user.MFAEnabled) iamGaps++;
+                    
+                    let mfaDisplay = `<span class="${mfaClass}">${mfaText}</span>`;
+                    if (!user.MFAEnabled) {
+                        mfaDisplay = `<div style="display:flex; align-items:center; gap:8px;">
+                            <span class="${mfaClass}">${mfaText}</span>
+                            <button class="btn btn-tertiary btn-small" onclick="remediateQuarantine('${user.UserName}')" style="padding:4px 8px; font-size:10px; width:auto; white-space:nowrap;">🛑 Quarantine</button>
+                        </div>`;
+                    }
                     
                     let keysHtml = "✅ All secure";
                     if (user.OldAccessKeys && user.OldAccessKeys.length > 0) {
                         keysHtml = user.OldAccessKeys.map(k => {
                             iamGaps++;
-                            return `<span class="badge danger-pill">⚠️ Key ${k.AccessKeyId} (${k.AgeDays} days)</span>`;
-                        }).join(" ");
+                            return `<div style="display:flex; align-items:center; gap:8px; margin-bottom:4px;">
+                                <span class="badge danger-pill">⚠️ Key ${k.AccessKeyId} (${k.AgeDays} days)</span>
+                                <button class="btn btn-tertiary btn-small" onclick="remediateDeactivate('${user.UserName}', '${k.AccessKeyId}')" style="padding:4px 8px; font-size:10px; width:auto; white-space:nowrap;">🔑 Deactivate</button>
+                            </div>`;
+                        }).join("");
                     }
                     
                     html += `<tr>
                         <td><strong>${user.UserName}</strong></td>
-                        <td><span class="${mfaClass}">${mfaText}</span></td>
+                        <td>${mfaDisplay}</td>
                         <td>${keysHtml}</td>
                     </tr>`;
                 });
@@ -543,6 +554,14 @@
                     
                     if (bucket.IsPublic) s3Gaps++;
                     
+                    let statusDisplay = `<span class="${statusClass}">${statusText}</span>`;
+                    if (bucket.IsPublic) {
+                        statusDisplay = `<div style="display:flex; align-items:center; gap:10px;">
+                            <span class="${statusClass}">${statusText}</span>
+                            <button class="btn btn-primary btn-small" onclick="remediateS3('${bucket.BucketName}')" style="padding:4px 10px; font-size:11px; width:auto; white-space:nowrap;">🔒 Secure Bucket</button>
+                        </div>`;
+                    }
+                    
                     const encClass = bucket.IsEncrypted ? "badge success" : "badge danger";
                     const encText = bucket.IsEncrypted ? "Encrypted" : "Unencrypted";
                     if (!bucket.IsEncrypted) s3Gaps++;
@@ -552,7 +571,7 @@
                     
                     html += `<tr>
                         <td><strong>${bucket.BucketName}</strong></td>
-                        <td><span class="${statusClass}">${statusText}</span></td>
+                        <td>${statusDisplay}</td>
                         <td><span class="${encClass}">${encText}</span></td>
                         <td><span class="${verClass}">${verText}</span></td>
                     </tr>`;
@@ -593,6 +612,73 @@
                 valS3.textContent = "Public Risk!";
                 cardS3.className = "metric-card glass danger-glow";
             }
+        }
+
+        // Remediation logic trigger handlers
+        function remediateS3(bucketName) {
+            if (!confirm(`Are you sure you want to secure S3 Bucket "${bucketName}"? This will enable all Public Access Block settings.`)) {
+                return;
+            }
+            showToast("Securing S3 bucket...", true);
+            fetch('/api/remediate/s3', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ bucket_name: bucketName })
+            })
+            .then(res => res.json())
+            .then(data => {
+                if (data.success) {
+                    showToast(data.message, true);
+                    triggerScan();
+                } else {
+                    showToast(`Failed: ${data.error}`, false);
+                }
+            })
+            .catch(err => showToast("Remediation connection failed", false));
+        }
+
+        function remediateQuarantine(username) {
+            if (!confirm(`Are you sure you want to quarantine user "${username}"? This will attach an inline DenyAllExceptMFA policy.`)) {
+                return;
+            }
+            showToast("Quarantining IAM user...", true);
+            fetch('/api/remediate/iam/quarantine', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ username: username })
+            })
+            .then(res => res.json())
+            .then(data => {
+                if (data.success) {
+                    showToast(data.message, true);
+                    triggerScan();
+                } else {
+                    showToast(`Failed: ${data.error}`, false);
+                }
+            })
+            .catch(err => showToast("Remediation connection failed", false));
+        }
+
+        function remediateDeactivate(username, accessKeyId) {
+            if (!confirm(`Are you sure you want to deactivate Access Key "${accessKeyId}" for user "${username}"?`)) {
+                return;
+            }
+            showToast("Deactivating Access Key...", true);
+            fetch('/api/remediate/iam/deactivate', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ username: username, access_key_id: accessKeyId })
+            })
+            .then(res => res.json())
+            .then(data => {
+                if (data.success) {
+                    showToast(data.message, true);
+                    triggerScan();
+                } else {
+                    showToast(`Failed: ${data.error}`, false);
+                }
+            })
+            .catch(err => showToast("Remediation connection failed", false));
         }
     </script>
 </body>
