@@ -23,6 +23,8 @@ def analyze_findings(report):
     high_risk_mfa = []
     high_risk_keys = []
     high_risk_s3 = []
+    unencrypted_s3 = []
+    unversioned_s3 = []
     
     # 1. Analyze IAM Audit
     iam_audit = report.get("IAM_Audit", [])
@@ -42,13 +44,27 @@ def analyze_findings(report):
     # 2. Analyze S3 Audit
     s3_audit = report.get("S3_Audit", [])
     for bucket in s3_audit:
+        bname = bucket.get("BucketName")
         if bucket.get("IsPublic", False):
-            high_risk_s3.append(bucket.get("BucketName"))
+            high_risk_s3.append(bname)
+        if not bucket.get("IsEncrypted", True):
+            unencrypted_s3.append(bname)
+        if not bucket.get("IsVersioned", True):
+            unversioned_s3.append(bname)
+            
+    # 3. Analyze Account Metadata
+    metadata = report.get("Account_Metadata", {})
+    root_mfa_disabled = not metadata.get("RootMFAEnabled", True)
+    password_policy_missing = not metadata.get("PasswordPolicyConfigured", True)
             
     return {
         "mfa_disabled": high_risk_mfa,
         "old_keys": high_risk_keys,
         "public_s3": high_risk_s3,
+        "unencrypted_s3": unencrypted_s3,
+        "unversioned_s3": unversioned_s3,
+        "root_mfa_disabled": root_mfa_disabled,
+        "password_policy_missing": password_policy_missing,
         "timestamp": report.get("Timestamp", datetime.now().isoformat())
     }
 
@@ -78,6 +94,28 @@ def format_slack_message(findings):
     ]
     
     has_gaps = False
+    
+    # Root Account Warning
+    if findings.get("root_mfa_disabled", False):
+        has_gaps = True
+        blocks.append({
+            "type": "section",
+            "text": {
+                "type": "mrkdwn",
+                "text": "❌ *VULNERABILITY: Root Account MFA is Disabled!*\n• Critical risk! Root MFA should be enabled immediately to protect against root-level takeovers."
+            }
+        })
+        
+    # Password Policy Warning
+    if findings.get("password_policy_missing", False):
+        has_gaps = True
+        blocks.append({
+            "type": "section",
+            "text": {
+                "type": "mrkdwn",
+                "text": "⚠️ *IAM Password Policy Gaps*\n• The account is using the default weak AWS password policy. Configure a strong custom password policy."
+            }
+        })
     
     # MFA Disabled Warnings
     if findings["mfa_disabled"]:
@@ -115,6 +153,23 @@ def format_slack_message(findings):
             "text": {
                 "type": "mrkdwn",
                 "text": f"❌ *Public S3 Buckets Detected*\n{s3_text}"
+            }
+        })
+        
+    # S3 Extra Data Protection Warnings
+    if findings.get("unencrypted_s3") or findings.get("unversioned_s3"):
+        has_gaps = True
+        s3_extra_text = ""
+        if findings.get("unencrypted_s3"):
+            s3_extra_text += "*Unencrypted S3 Buckets:*\n" + "\n".join([f"• `{b}`" for b in findings["unencrypted_s3"]]) + "\n"
+        if findings.get("unversioned_s3"):
+            s3_extra_text += "*Versioning Disabled S3 Buckets:*\n" + "\n".join([f"• `{b}`" for b in findings["unversioned_s3"]])
+            
+        blocks.append({
+            "type": "section",
+            "text": {
+                "type": "mrkdwn",
+                "text": f"⚠️ *S3 Data Protection Warnings*\n{s3_extra_text}"
             }
         })
         

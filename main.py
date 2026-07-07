@@ -16,13 +16,7 @@ def get_aws_client(service_name, creds=None):
     aws_secret_access_key = creds.get("aws_secret_access_key")
     aws_session_token = creds.get("aws_session_token")
     web_identity_token = creds.get("web_identity_token")
-    aws_profile = creds.get("aws_profile")
     
-    if aws_profile:
-        print(f"[*] Initializing AWS Client '{service_name}' using Named CLI Profile: '{aws_profile}'...")
-        session = boto3.Session(profile_name=aws_profile)
-        return session.client(service_name, region_name=region_name)
-        
     if role_arn and web_identity_token:
         if web_identity_token.startswith("mock-") or "mock" in role_arn.lower():
             print(f"[*] [Mock SSO Mode] Bypassing STS token exchange. Using local AWS credentials for demo...")
@@ -88,11 +82,16 @@ def get_aws_client(service_name, creds=None):
 
 def audit_iam_users(creds=None):
     """
-    Audits AWS IAM users for security best practices:
-    1. Checks if Multi-Factor Authentication (MFA) is enabled.
+    Audits AWS IAM users and account-level parameters:
+    1. Checks if Multi-Factor Authentication (MFA) is enabled for each user.
     2. Checks if there are active access keys older than 90 days.
+    3. Checks Root Account MFA.
+    4. Checks if custom Password Policy is configured.
     """
     print("[*] Auditing IAM Users...")
+    root_mfa_enabled = False
+    password_policy_configured = False
+    
     try:
         client = get_aws_client('iam', creds)
         users = client.list_users()['Users']
@@ -100,7 +99,23 @@ def audit_iam_users(creds=None):
         print(f"[-] IAM Audit failed to list users: {e}")
         raise e
         
-    report = []
+    # Account Level Summary - Root MFA check
+    try:
+        summary = client.get_account_summary()
+        root_mfa_enabled = summary.get('SummaryMap', {}).get('AccountMFAEnabled', 0) == 1
+    except Exception as e:
+        print(f"[-] IAM Audit failed to fetch root MFA status: {e}")
+        
+    # Account Password Policy check
+    try:
+        client.get_account_password_policy()
+        password_policy_configured = True
+    except client.exceptions.NoSuchEntityException:
+        password_policy_configured = False
+    except Exception as e:
+        print(f"[-] IAM Audit failed to fetch password policy: {e}")
+        
+    users_report = []
     
     for user in users:
         username = user['UserName']
@@ -121,18 +136,24 @@ def audit_iam_users(creds=None):
                     "AgeDays": age_days
                 })
         
-        report.append({
+        users_report.append({
             "UserName": username,
             "MFAEnabled": mfa_enabled,
             "OldAccessKeys": old_keys
         })
         
-    return report
+    return {
+        "Users": users_report,
+        "RootMFAEnabled": root_mfa_enabled,
+        "PasswordPolicyConfigured": password_policy_configured
+    }
 
 def audit_s3_buckets(creds=None):
     """
-    Audits S3 Buckets to check if Public Access Block is configured.
-    An unconfigured or partially configured public access block represents a security gap.
+    Audits S3 Buckets to check:
+    1. Public Access Block configuration gaps.
+    2. Server-side encryption status.
+    3. Object versioning status.
     """
     print("[*] Auditing S3 Buckets...")
     try:
@@ -147,21 +168,42 @@ def audit_s3_buckets(creds=None):
     for bucket in buckets:
         name = bucket['Name']
         is_public = False
+        
+        # 1. Public Block status
         try:
-            # Check if Public Access Block configurations are active
             pab = client.get_public_access_block(Bucket=name)
             config = pab['PublicAccessBlockConfiguration']
-            # If any block parameter is False, S3 bucket configurations have security gaps
             if not (config['BlockPublicAcls'] and config['IgnorePublicAcls'] and 
                     config['BlockPublicPolicy'] and config['RestrictPublicBuckets']):
                 is_public = True
-        except client.exceptions.ClientError as e:
-            # If no public access block configuration exists, it is open/public by default
+        except client.exceptions.ClientError:
             is_public = True
+        except Exception:
+            is_public = True
+            
+        # 2. Encryption check
+        is_encrypted = False
+        try:
+            enc = client.get_bucket_encryption(Bucket=name)
+            if enc.get('ServerSideEncryptionConfiguration'):
+                is_encrypted = True
+        except Exception:
+            is_encrypted = False
+            
+        # 3. Versioning check
+        is_versioned = False
+        try:
+            ver = client.get_bucket_versioning(Bucket=name)
+            if ver.get('Status') == 'Enabled':
+                is_versioned = True
+        except Exception:
+            is_versioned = False
             
         report.append({
             "BucketName": name,
-            "IsPublic": is_public
+            "IsPublic": is_public,
+            "IsEncrypted": is_encrypted,
+            "IsVersioned": is_versioned
         })
         
     return report
@@ -171,12 +213,16 @@ def run_audit_and_save(filename="security_report.json", creds=None):
     Executes the IAM and S3 security audits, aggregates the results,
     saves them to a JSON file, and returns the aggregated report dict.
     """
-    iam_report = audit_iam_users(creds)
+    iam_result = audit_iam_users(creds)
     s3_report = audit_s3_buckets(creds)
     
     final_report = {
         "Timestamp": datetime.now().isoformat(),
-        "IAM_Audit": iam_report,
+        "Account_Metadata": {
+            "RootMFAEnabled": iam_result["RootMFAEnabled"],
+            "PasswordPolicyConfigured": iam_result["PasswordPolicyConfigured"]
+        },
+        "IAM_Audit": iam_result["Users"],
         "S3_Audit": s3_report
     }
     
@@ -195,12 +241,19 @@ def main():
         final_report = run_audit_and_save()
         iam_report = final_report["IAM_Audit"]
         s3_report = final_report["S3_Audit"]
+        metadata = final_report["Account_Metadata"]
         filename = "security_report.json"
         
         print(f"\n[+] Audit complete! Detailed report saved to: {filename}")
         
         # Print Security Gap Dashboard to Console
         print("\n" + "="*20 + " SECURITY DASHBOARD " + "="*20)
+        
+        print(f"\n[!] Account Level Security Metrics:")
+        root_mfa_txt = "✅ Enabled" if metadata["RootMFAEnabled"] else "❌ WARNING: Disabled!"
+        pw_policy_txt = "✅ Configured" if metadata["PasswordPolicyConfigured"] else "❌ WARNING: Default Policy (Weak)!"
+        print(f"- Root Account MFA: {root_mfa_txt}")
+        print(f"- Password Policy: {pw_policy_txt}")
         
         print("\n[!] IAM MFA & Access Key Findings:")
         for user in iam_report:
@@ -218,8 +271,11 @@ def main():
             print("- No S3 buckets found in this AWS account.")
         for bucket in s3_report:
             bucket_status = "❌ WARNING: Public Access is Enabled!" if bucket['IsPublic'] else "✅ Secure (Private Bucket)"
+            enc_status = "✅ Encrypted" if bucket['IsEncrypted'] else "⚠️ Warning: Encryption is disabled"
+            ver_status = "✅ Versioning Enabled" if bucket['IsVersioned'] else "⚠️ Versioning Disabled"
             print(f"- Bucket: {bucket['BucketName']}")
-            print(f"  Status: {bucket_status}")
+            print(f"  Exposure: {bucket_status}")
+            print(f"  Data Protection: {enc_status} | {ver_status}")
             
         print("\n" + "="*50)
             

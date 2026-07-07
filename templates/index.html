@@ -93,11 +93,29 @@
                 <div class="metrics-grid">
                     <div class="metric-card glass" id="metric-iam">
                         <div class="metric-header">
-                            <h3>IAM Security Status</h3>
+                            <h3>IAM User Security</h3>
                             <span class="metric-icon">👤</span>
                         </div>
                         <p class="metric-value" id="val-iam">Pending Scan</p>
                         <p class="metric-desc" id="desc-iam">MFA & Access Keys Age</p>
+                    </div>
+
+                    <div class="metric-card glass" id="metric-root-mfa">
+                        <div class="metric-header">
+                            <h3>Root MFA Status</h3>
+                            <span class="metric-icon">👑</span>
+                        </div>
+                        <p class="metric-value" id="val-root-mfa">Pending Scan</p>
+                        <p class="metric-desc" id="desc-root-mfa">Root account login check</p>
+                    </div>
+
+                    <div class="metric-card glass" id="metric-password-policy">
+                        <div class="metric-header">
+                            <h3>Password Policy</h3>
+                            <span class="metric-icon">🔑</span>
+                        </div>
+                        <p class="metric-value" id="val-password-policy">Pending Scan</p>
+                        <p class="metric-desc" id="desc-password-policy">Custom strength compliance</p>
                     </div>
                     
                     <div class="metric-card glass" id="metric-s3">
@@ -106,7 +124,7 @@
                             <span class="metric-icon">🪣</span>
                         </div>
                         <p class="metric-value" id="val-s3">Pending Scan</p>
-                        <p class="metric-desc" id="desc-s3">Public Access Block configurations</p>
+                        <p class="metric-desc" id="desc-s3">Public Access Block configuration</p>
                     </div>
                 </div>
 
@@ -141,19 +159,21 @@
                         <!-- S3 Tab -->
                         <div id="s3-tab" class="tab-content">
                             <div class="table-container">
-                                <table>
-                                    <thead>
-                                        <tr>
-                                            <th>S3 Bucket Name</th>
-                                            <th>Public Visibility Block Status</th>
-                                        </tr>
-                                    </thead>
-                                    <tbody id="tbl-s3-body">
-                                        <tr>
-                                            <td colspan="2" class="placeholder-text">Please trigger a scan to load AWS resources.</td>
-                                        </tr>
-                                    </tbody>
-                                </table>
+                                 <table>
+                                     <thead>
+                                         <tr>
+                                             <th>S3 Bucket Name</th>
+                                             <th>Public Visibility Block Status</th>
+                                             <th>Encryption Status</th>
+                                             <th>Object Versioning</th>
+                                         </tr>
+                                     </thead>
+                                     <tbody id="tbl-s3-body">
+                                         <tr>
+                                             <td colspan="4" class="placeholder-text">Please trigger a scan to load AWS resources.</td>
+                                         </tr>
+                                     </tbody>
+                                 </table>
                             </div>
                         </div>
                     </div>
@@ -367,8 +387,16 @@
 
             // Reset S3 table
             document.getElementById("tbl-s3-body").innerHTML = `
-                <tr><td colspan="2" class="placeholder-text">Please trigger a scan to load AWS resources.</td></tr>
+                <tr><td colspan="4" class="placeholder-text">Please trigger a scan to load AWS resources.</td></tr>
             `;
+
+            // Reset Root MFA card
+            document.getElementById("val-root-mfa").textContent = "Pending Scan";
+            document.getElementById("metric-root-mfa").className = "metric-card glass";
+
+            // Reset Password Policy card
+            document.getElementById("val-password-policy").textContent = "Pending Scan";
+            document.getElementById("metric-password-policy").className = "metric-card glass";
 
             // Switch back to IAM tab
             document.getElementById("iam-tab").classList.add("active");
@@ -428,6 +456,33 @@
             let s3Gaps = 0;
             let totalGaps = 0;
 
+            // Render Account-level metadata metrics
+            const metadata = report.Account_Metadata || { RootMFAEnabled: false, PasswordPolicyConfigured: false };
+            
+            // Root MFA Card
+            const valRootMfa = document.getElementById("val-root-mfa");
+            const cardRootMfa = document.getElementById("metric-root-mfa");
+            if (metadata.RootMFAEnabled) {
+                valRootMfa.textContent = "Enabled";
+                cardRootMfa.className = "metric-card glass secure-glow";
+            } else {
+                valRootMfa.textContent = "Disabled!";
+                cardRootMfa.className = "metric-card glass danger-glow";
+                iamGaps++;
+            }
+
+            // Password Policy Card
+            const valPassPolicy = document.getElementById("val-password-policy");
+            const cardPassPolicy = document.getElementById("metric-password-policy");
+            if (metadata.PasswordPolicyConfigured) {
+                valPassPolicy.textContent = "Strong Policy";
+                cardPassPolicy.className = "metric-card glass secure-glow";
+            } else {
+                valPassPolicy.textContent = "Weak Default";
+                cardPassPolicy.className = "metric-card glass danger-glow";
+                iamGaps++;
+            }
+
             // Render IAM Body
             const iamBody = document.getElementById("tbl-iam-body");
             const iamAudit = report.IAM_Audit || [];
@@ -464,7 +519,7 @@
             const s3Audit = report.S3_Audit || [];
             
             if (s3Audit.length === 0) {
-                s3Body.innerHTML = `<tr><td colspan="2" class="placeholder-text">No S3 Buckets found in this account.</td></tr>`;
+                s3Body.innerHTML = `<tr><td colspan="4" class="placeholder-text">No S3 Buckets found in this account.</td></tr>`;
             } else {
                 let html = "";
                 s3Audit.forEach(bucket => {
@@ -473,9 +528,18 @@
                     
                     if (bucket.IsPublic) s3Gaps++;
                     
+                    const encClass = bucket.IsEncrypted ? "badge success" : "badge danger";
+                    const encText = bucket.IsEncrypted ? "Encrypted" : "Unencrypted";
+                    if (!bucket.IsEncrypted) s3Gaps++;
+                    
+                    const verClass = bucket.IsVersioned ? "badge success" : "badge warning";
+                    const verText = bucket.IsVersioned ? "Enabled" : "Disabled";
+                    
                     html += `<tr>
                         <td><strong>${bucket.BucketName}</strong></td>
                         <td><span class="${statusClass}">${statusText}</span></td>
+                        <td><span class="${encClass}">${encText}</span></td>
+                        <td><span class="${verClass}">${verText}</span></td>
                     </tr>`;
                 });
                 s3Body.innerHTML = html;

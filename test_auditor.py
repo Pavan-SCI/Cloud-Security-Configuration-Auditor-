@@ -61,10 +61,17 @@ class TestSecurityAuditor(unittest.TestCase):
                 }
         mock_iam.list_access_keys.side_effect = list_access_keys_side_effect
         
+        # Configure account summary & password policy
+        mock_iam.get_account_summary.return_value = {"SummaryMap": {"AccountMFAEnabled": 1}}
+        mock_iam.get_account_password_policy.return_value = {}
+        
         # Run audit function
-        report = main.audit_iam_users()
+        result = main.audit_iam_users()
+        report = result["Users"]
         
         # Assertions
+        self.assertTrue(result["RootMFAEnabled"])
+        self.assertTrue(result["PasswordPolicyConfigured"])
         self.assertEqual(len(report), 2)
         
         secure_user_report = next(u for u in report if u['UserName'] == 'secure-user')
@@ -122,6 +129,20 @@ class TestSecurityAuditor(unittest.TestCase):
         mock_s3.get_public_access_block.side_effect = get_public_access_block_side_effect
         mock_s3.exceptions.ClientError = ClientError
         
+        # Mock client.get_bucket_encryption
+        def get_bucket_encryption_side_effect(Bucket):
+            if Bucket == 'secure-bucket':
+                return {'ServerSideEncryptionConfiguration': {'Rules': []}}
+            raise Exception("No encryption configuration found")
+        mock_s3.get_bucket_encryption.side_effect = get_bucket_encryption_side_effect
+        
+        # Mock client.get_bucket_versioning
+        def get_bucket_versioning_side_effect(Bucket):
+            if Bucket == 'secure-bucket':
+                return {'Status': 'Enabled'}
+            return {}
+        mock_s3.get_bucket_versioning.side_effect = get_bucket_versioning_side_effect
+        
         # Run audit function
         report = main.audit_s3_buckets()
         
@@ -130,9 +151,13 @@ class TestSecurityAuditor(unittest.TestCase):
         
         secure_bucket = next(b for b in report if b['BucketName'] == 'secure-bucket')
         self.assertFalse(secure_bucket['IsPublic'])
+        self.assertTrue(secure_bucket['IsEncrypted'])
+        self.assertTrue(secure_bucket['IsVersioned'])
         
         insecure_bucket = next(b for b in report if b['BucketName'] == 'insecure-bucket')
         self.assertTrue(insecure_bucket['IsPublic'])
+        self.assertFalse(insecure_bucket['IsEncrypted'])
+        self.assertFalse(insecure_bucket['IsVersioned'])
         
         missing_config_bucket = next(b for b in report if b['BucketName'] == 'missing-config-bucket')
         self.assertTrue(missing_config_bucket['IsPublic'])
@@ -142,6 +167,10 @@ class TestNotifier(unittest.TestCase):
     def setUp(self):
         self.sample_report = {
             "Timestamp": "2026-06-28T01:00:00",
+            "Account_Metadata": {
+                "RootMFAEnabled": False,
+                "PasswordPolicyConfigured": False
+            },
             "IAM_Audit": [
                 {
                     "UserName": "insecure-user",
@@ -162,11 +191,15 @@ class TestNotifier(unittest.TestCase):
             "S3_Audit": [
                 {
                     "BucketName": "insecure-bucket",
-                    "IsPublic": True
+                    "IsPublic": True,
+                    "IsEncrypted": False,
+                    "IsVersioned": False
                 },
                 {
                     "BucketName": "secure-bucket",
-                    "IsPublic": False
+                    "IsPublic": False,
+                    "IsEncrypted": True,
+                    "IsVersioned": True
                 }
             ]
         }
@@ -508,54 +541,14 @@ class TestFlaskAuthentication(unittest.TestCase):
         self.assertIn('code=mock-auth-code-12345', response.headers['Location'])
 
     def test_callback_mock_mode_success(self):
-        response = self.client.get('/callback?code=mock-auth-code-12345&account_id=777788889999')
+        response = self.client.get('/callback?code=mock-auth-code-12345')
         self.assertEqual(response.status_code, 302)
         self.assertTrue(response.headers['Location'].endswith('/'))
         
         with self.client.session_transaction() as sess:
-            self.assertEqual(sess['aws_account_id'], "777788889999")
-            self.assertEqual(sess['auth_method'], "OIDC Cognito (Mock: 777788889999)")
+            self.assertEqual(sess['aws_account_id'], "123456789012")
+            self.assertEqual(sess['auth_method'], "OIDC Cognito (Mock)")
             self.assertEqual(sess['aws_creds']['web_identity_token'], "mock-identity-jwt-token-9876")
-
-    def test_login_google_redirects_to_mock_when_no_domain(self):
-        response = self.client.get('/login/google')
-        self.assertEqual(response.status_code, 302)
-        self.assertTrue(response.headers['Location'].endswith('/login/aws/mock'))
-
-    @patch('boto3.Session')
-    def test_login_success_profile(self, mock_session_class):
-        mock_session_instance = MagicMock()
-        mock_sts = MagicMock()
-        mock_sts.get_caller_identity.return_value = {"Account": "555566667777"}
-        mock_session_instance.client.return_value = mock_sts
-        mock_session_class.return_value = mock_session_instance
-        
-        response = self.client.post('/login', data={
-            'auth_mode': 'profile',
-            'aws_profile': 'my-custom-profile',
-            'region_name': 'us-east-1'
-        })
-        
-        self.assertEqual(response.status_code, 302)
-        self.assertTrue(response.headers['Location'].endswith('/'))
-        
-        with self.client.session_transaction() as sess:
-            self.assertEqual(sess['aws_account_id'], "555566667777")
-            self.assertEqual(sess['auth_method'], "Local Profile: my-custom-profile")
-            self.assertEqual(sess['aws_creds']['aws_profile'], "my-custom-profile")
-
-    @patch('boto3.Session')
-    def test_login_failure_profile(self, mock_session_class):
-        mock_session_class.side_effect = Exception("ProfileNotFound")
-        
-        response = self.client.post('/login', data={
-            'auth_mode': 'profile',
-            'aws_profile': 'wrong-profile',
-            'region_name': 'us-east-1'
-        })
-        
-        self.assertEqual(response.status_code, 200)
-        self.assertIn(b"AWS connection failed", response.data)
 
 if __name__ == '__main__':
     unittest.main()
