@@ -195,6 +195,69 @@ Timestamp: 2026-06-29T14:00:00
 
 ---
 
+## ⚡ Real-Time Event-Driven Monitoring & Webhooks
+
+The auditor includes a real-time event listener endpoint (`POST /api/webhook`) that processes live AWS configuration changes (via AWS CloudTrail & EventBridge) and streams updates directly to the browser using Server-Sent Events (SSE).
+
+### 1. How to Test Locally (Mock Event Simulation)
+You can simulate a live AWS configuration change (like a user or bucket creation) using `curl`. 
+
+**Simulate an insecure User Creation event (MFA disabled):**
+```bash
+curl -X POST http://127.0.0.1:5000/api/webhook \
+     -H "Content-Type: application/json" \
+     -d '{
+       "detail-type": "AWS API Call via CloudTrail",
+       "detail": {
+         "eventName": "CreateUser",
+         "requestParameters": {
+           "userName": "Insecure-Test-User"
+         }
+       }
+     }'
+```
+*The dashboard will instantly refresh the user list in real-time and pop up a red warning alert.*
+
+---
+
+### 2. Live AWS CloudTrail & EventBridge Setup
+
+To connect this local scanner to a live AWS Account for real-time events:
+
+1. **Expose Localhost Webhook to AWS:**
+   AWS cannot send webhooks directly to `127.0.0.1`. Use a reverse proxy like `ngrok`:
+   ```bash
+   ngrok http 5000
+   ```
+   *Copy the generated forwarding HTTPS URL (e.g., `https://xxxx.ngrok-free.app`). Your webhook endpoint will be `https://xxxx.ngrok-free.app/api/webhook`.*
+
+2. **Configure AWS CloudTrail:**
+   * In AWS Console, go to **CloudTrail** → **Trails** → **Create Trail**.
+   * Turn on **Management Events** (Read/Write) to track user/bucket modifications.
+
+3. **Configure Amazon EventBridge API Destination:**
+   * Go to **Amazon EventBridge** → **API Destinations** → **Create API Destination**.
+   * Set **API Destination Endpoint** to your ngrok webhook URL (`https://xxxx.ngrok-free.app/api/webhook`).
+   * Set HTTP Method to `POST`. Create a new Connection (use API Key auth or no auth).
+
+4. **Create EventBridge Rule:**
+   * Go to **EventBridge Rules** → **Create Rule**.
+   * Select **Rule with an event pattern**. Use the following pattern to listen to IAM and S3 modifications:
+     ```json
+     {
+       "source": ["aws.iam", "aws.s3"],
+       "detail-type": ["AWS API Call via CloudTrail"],
+       "detail": {
+         "eventName": ["CreateUser", "CreateBucket", "PutBucketPolicy", "DeleteBucketPolicy"]
+       }
+     }
+     ```
+   * Set the target to the **API Destination** created in Step 3.
+
+*Whenever an administrator modifies IAM or S3 configurations, AWS will push the event to EventBridge, which routes it through ngrok to your web dashboard, alerting you to security gaps in real-time.*
+
+---
+
 ## 🔎 What Gets Audited
 
 ### IAM Security Checks

@@ -31,9 +31,17 @@
                     <p class="subtitle">Real-time AWS IAM & S3 Configuration Guardrails Scanner</p>
                 </div>
             </div>
-            <div class="scan-status-panel">
-                <span class="status-indicator-dot" id="global-status-dot"></span>
-                <span class="status-text" id="global-status-text">Checking Status...</span>
+            <div class="scan-status-panel" style="display: flex; align-items: center; gap: 15px;">
+                <button id="btn-theme-toggle" class="btn btn-tertiary btn-small" style="padding: 6px 12px; font-size: 11px; display: flex; align-items: center; gap: 5px;">
+                    🌓 Theme
+                </button>
+                <div style="display: flex; align-items: center; gap: 8px;">
+                    <span class="status-indicator-dot" id="global-status-dot"></span>
+                    <span class="status-text" id="global-status-text">Checking Status...</span>
+                </div>
+                <button id="btn-logout" class="btn btn-tertiary btn-small" style="padding: 6px 12px; font-size: 11px;">
+                    🚪 Logout
+                </button>
             </div>
         </header>
 
@@ -49,6 +57,17 @@
                     <button id="btn-reset" class="btn btn-tertiary">
                         <span class="icon">🔁</span> Reset Dashboard
                     </button>
+                </div>
+                
+                <hr class="divider">
+                
+                <h2>Active AWS Connection</h2>
+                <div class="credentials-settings">
+                    <div class="onboarding-text" style="background: rgba(255,255,255,0.03); border: 1px solid var(--border-color); padding: 12px; border-radius: 8px; font-size: 12px; display: flex; flex-direction: column; gap: 8px;">
+                        <div>🟢 <strong>Connected Account:</strong> <span id="lbl-account-id">Loading...</span></div>
+                        <div>🌎 <strong>Scan Region:</strong> <span id="lbl-scan-region">Loading...</span></div>
+                        <div id="lbl-role-row" style="display: none; word-break: break-all;">🔗 <strong>Role ARN:</strong> <span id="lbl-role-arn">-</span></div>
+                    </div>
                 </div>
                 
                 <hr class="divider">
@@ -77,11 +96,29 @@
                 <div class="metrics-grid">
                     <div class="metric-card glass" id="metric-iam">
                         <div class="metric-header">
-                            <h3>IAM Security Status</h3>
+                            <h3>IAM User Security</h3>
                             <span class="metric-icon">👤</span>
                         </div>
                         <p class="metric-value" id="val-iam">Pending Scan</p>
                         <p class="metric-desc" id="desc-iam">MFA & Access Keys Age</p>
+                    </div>
+
+                    <div class="metric-card glass" id="metric-root-mfa">
+                        <div class="metric-header">
+                            <h3>Root MFA Status</h3>
+                            <span class="metric-icon">👑</span>
+                        </div>
+                        <p class="metric-value" id="val-root-mfa">Pending Scan</p>
+                        <p class="metric-desc" id="desc-root-mfa">Root account login check</p>
+                    </div>
+
+                    <div class="metric-card glass" id="metric-password-policy">
+                        <div class="metric-header">
+                            <h3>Password Policy</h3>
+                            <span class="metric-icon">🔑</span>
+                        </div>
+                        <p class="metric-value" id="val-password-policy">Pending Scan</p>
+                        <p class="metric-desc" id="desc-password-policy">Custom strength compliance</p>
                     </div>
                     
                     <div class="metric-card glass" id="metric-s3">
@@ -90,7 +127,7 @@
                             <span class="metric-icon">🪣</span>
                         </div>
                         <p class="metric-value" id="val-s3">Pending Scan</p>
-                        <p class="metric-desc" id="desc-s3">Public Access Block configurations</p>
+                        <p class="metric-desc" id="desc-s3">Public Access Block configuration</p>
                     </div>
                 </div>
 
@@ -125,19 +162,21 @@
                         <!-- S3 Tab -->
                         <div id="s3-tab" class="tab-content">
                             <div class="table-container">
-                                <table>
-                                    <thead>
-                                        <tr>
-                                            <th>S3 Bucket Name</th>
-                                            <th>Public Visibility Block Status</th>
-                                        </tr>
-                                    </thead>
-                                    <tbody id="tbl-s3-body">
-                                        <tr>
-                                            <td colspan="2" class="placeholder-text">Please trigger a scan to load AWS resources.</td>
-                                        </tr>
-                                    </tbody>
-                                </table>
+                                 <table>
+                                     <thead>
+                                         <tr>
+                                             <th>S3 Bucket Name</th>
+                                             <th>Public Visibility Block Status</th>
+                                             <th>Encryption Status</th>
+                                             <th>Object Versioning</th>
+                                         </tr>
+                                     </thead>
+                                     <tbody id="tbl-s3-body">
+                                         <tr>
+                                             <td colspan="4" class="placeholder-text">Please trigger a scan to load AWS resources.</td>
+                                         </tr>
+                                     </tbody>
+                                 </table>
                             </div>
                         </div>
                     </div>
@@ -188,7 +227,20 @@
                 document.getElementById("webhook-url").value = savedWebhook;
             }
 
+            // Initialize theme on load
+            const savedTheme = localStorage.getItem("theme") || "dark";
+            document.documentElement.setAttribute("data-theme", savedTheme);
+
             fetchReport();
+            setupSSE();
+        });
+
+        // Theme switching logic
+        document.getElementById("btn-theme-toggle").addEventListener("click", () => {
+            const currentTheme = document.documentElement.getAttribute("data-theme");
+            const newTheme = currentTheme === "dark" ? "light" : "dark";
+            document.documentElement.setAttribute("data-theme", newTheme);
+            localStorage.setItem("theme", newTheme);
         });
 
         // Save webhook to localStorage when changed
@@ -196,29 +248,116 @@
             localStorage.setItem("slack_webhook", e.target.value);
         });
 
-        // Fetch report data
+        // Setup Server-Sent Events listener for real-time AWS alerts
+        function setupSSE() {
+            const source = new EventSource('/api/stream');
+            
+            source.onmessage = (event) => {
+                try {
+                    const payload = JSON.parse(event.data);
+                    
+                    if (payload.type === "connection") {
+                        console.log("[SSE]", payload.message);
+                    } 
+                    else if (payload.type === "report_updated") {
+                        console.log("[SSE] Report updated via manual scan.");
+                        renderDashboard(payload.data);
+                    } 
+                    else if (payload.type === "aws_security_event") {
+                        const eventData = payload.data;
+                        console.log("[SSE] Real-time AWS Security Event:", eventData);
+                        
+                        // Update the dashboard tables dynamically
+                        renderDashboard(eventData.report);
+                        
+                        // Display prominent toast notification
+                        if (eventData.has_warning) {
+                            showToast(`🚨 REAL-TIME ALERT: ${eventData.warning_message}`, false);
+                        } else {
+                            showToast(`✅ Real-time: Verified ${eventData.resource_type} '${eventData.resource_name}' (Secure)`, true);
+                        }
+                    }
+                } catch (e) {
+                    console.error("Error parsing SSE message:", e);
+                }
+            };
+            
+            source.onerror = (err) => {
+                console.warn("SSE connection closed or lost. Browser will auto-reconnect.");
+            };
+        }
+
+        // Fetch report data and active AWS credentials session info, then run live scan
         function fetchReport() {
             fetch('/api/report')
-                .then(res => {
-                    if (!res.ok) throw new Error("No previous report file found.");
-                    return res.json();
-                })
+                .then(res => res.json())
                 .then(data => {
-                    if (data.success && data.report) {
-                        renderDashboard(data.report);
+                    if (data.success) {
+                        updateConnectionStatus(data);
+                        triggerScan();
                     }
                 })
                 .catch(err => {
                     console.log(err.message);
-                    setPlaceholderState("Pending Initial Scan");
+                    triggerScan();
                 });
         }
 
+        // Logout user session
+        document.getElementById("btn-logout").addEventListener("click", () => {
+            fetch('/logout', { method: 'POST' })
+            .then(res => res.json())
+            .then(data => {
+                if (data.success) {
+                    window.location.href = '/login';
+                }
+            })
+            .catch(err => {
+                window.location.href = '/login';
+            });
+        });
+
+        function updateConnectionStatus(data) {
+            const logoArea = document.querySelector(".logo-area");
+            
+            // Remove existing badges
+            const oldBadge = document.getElementById("connection-badge");
+            if (oldBadge) oldBadge.remove();
+            
+            if (data && data.aws_account_id) {
+                // Update active sidebar info card
+                document.getElementById("lbl-account-id").textContent = data.aws_account_id;
+                document.getElementById("lbl-scan-region").textContent = data.region_name || "us-east-1";
+                
+                const roleRow = document.getElementById("lbl-role-row");
+                const roleArnSpan = document.getElementById("lbl-role-arn");
+                
+                if (data.role_arn) {
+                    roleRow.style.display = "block";
+                    roleArnSpan.textContent = data.role_arn;
+                } else {
+                    roleRow.style.display = "none";
+                }
+                
+                const badge = document.createElement("span");
+                badge.id = "connection-badge";
+                badge.className = "badge success";
+                badge.style.marginLeft = "12px";
+                badge.style.fontSize = "11px";
+                badge.style.fontWeight = "600";
+                badge.style.verticalAlign = "middle";
+                badge.textContent = `🔗 Active: ${data.aws_account_id}`;
+                
+                logoArea.querySelector("div").appendChild(badge);
+            }
+        }
+
         // Trigger AWS Scan
-        document.getElementById("btn-scan").addEventListener("click", () => {
+        function triggerScan() {
             const btn = document.getElementById("btn-scan");
             btn.disabled = true;
             btn.innerHTML = `<span class="spinner"></span> Scanning AWS...`;
+            setPlaceholderState("Running live compliance audit...");
             
             fetch('/api/scan', { method: 'POST' })
                 .then(res => {
@@ -231,12 +370,15 @@
                 })
                 .catch(err => {
                     showToast(err.message, false);
+                    setPlaceholderState(`Audit failed: ${err.message}`);
                 })
                 .finally(() => {
                     btn.disabled = false;
                     btn.innerHTML = `<span class="icon">🔄</span> Trigger AWS Security Audit`;
                 });
-        });
+        }
+
+        document.getElementById("btn-scan").addEventListener("click", triggerScan);
 
         // Reset Dashboard to initial empty state
         document.getElementById("btn-reset").addEventListener("click", () => {
@@ -260,8 +402,16 @@
 
             // Reset S3 table
             document.getElementById("tbl-s3-body").innerHTML = `
-                <tr><td colspan="2" class="placeholder-text">Please trigger a scan to load AWS resources.</td></tr>
+                <tr><td colspan="4" class="placeholder-text">Please trigger a scan to load AWS resources.</td></tr>
             `;
+
+            // Reset Root MFA card
+            document.getElementById("val-root-mfa").textContent = "Pending Scan";
+            document.getElementById("metric-root-mfa").className = "metric-card glass";
+
+            // Reset Password Policy card
+            document.getElementById("val-password-policy").textContent = "Pending Scan";
+            document.getElementById("metric-password-policy").className = "metric-card glass";
 
             // Switch back to IAM tab
             document.getElementById("iam-tab").classList.add("active");
@@ -321,6 +471,33 @@
             let s3Gaps = 0;
             let totalGaps = 0;
 
+            // Render Account-level metadata metrics
+            const metadata = report.Account_Metadata || { RootMFAEnabled: false, PasswordPolicyConfigured: false };
+            
+            // Root MFA Card
+            const valRootMfa = document.getElementById("val-root-mfa");
+            const cardRootMfa = document.getElementById("metric-root-mfa");
+            if (metadata.RootMFAEnabled) {
+                valRootMfa.textContent = "Enabled";
+                cardRootMfa.className = "metric-card glass secure-glow";
+            } else {
+                valRootMfa.textContent = "Disabled!";
+                cardRootMfa.className = "metric-card glass danger-glow";
+                iamGaps++;
+            }
+
+            // Password Policy Card
+            const valPassPolicy = document.getElementById("val-password-policy");
+            const cardPassPolicy = document.getElementById("metric-password-policy");
+            if (metadata.PasswordPolicyConfigured) {
+                valPassPolicy.textContent = "Strong Policy";
+                cardPassPolicy.className = "metric-card glass secure-glow";
+            } else {
+                valPassPolicy.textContent = "Weak Default";
+                cardPassPolicy.className = "metric-card glass danger-glow";
+                iamGaps++;
+            }
+
             // Render IAM Body
             const iamBody = document.getElementById("tbl-iam-body");
             const iamAudit = report.IAM_Audit || [];
@@ -330,22 +507,33 @@
             } else {
                 let html = "";
                 iamAudit.forEach(user => {
-                    const mfaClass = user.MFAEnabled ? "badge success" : "badge danger";
-                    const mfaText = user.MFAEnabled ? "Active" : "Disabled";
+                    let mfaClass = user.MFAEnabled ? "badge success" : "badge danger";
+                    let mfaText = user.MFAEnabled ? "Active" : "Disabled";
                     
                     if (!user.MFAEnabled) iamGaps++;
+                    
+                    let mfaDisplay = `<span class="${mfaClass}">${mfaText}</span>`;
+                    if (!user.MFAEnabled) {
+                        mfaDisplay = `<div style="display:flex; align-items:center; gap:8px;">
+                            <span class="${mfaClass}">${mfaText}</span>
+                            <button class="btn btn-tertiary btn-small" onclick="remediateQuarantine('${user.UserName}')" style="padding:4px 8px; font-size:10px; width:auto; white-space:nowrap;">🛑 Quarantine</button>
+                        </div>`;
+                    }
                     
                     let keysHtml = "✅ All secure";
                     if (user.OldAccessKeys && user.OldAccessKeys.length > 0) {
                         keysHtml = user.OldAccessKeys.map(k => {
                             iamGaps++;
-                            return `<span class="badge danger-pill">⚠️ Key ${k.AccessKeyId} (${k.AgeDays} days)</span>`;
-                        }).join(" ");
+                            return `<div style="display:flex; align-items:center; gap:8px; margin-bottom:4px;">
+                                <span class="badge danger-pill">⚠️ Key ${k.AccessKeyId} (${k.AgeDays} days)</span>
+                                <button class="btn btn-tertiary btn-small" onclick="remediateDeactivate('${user.UserName}', '${k.AccessKeyId}')" style="padding:4px 8px; font-size:10px; width:auto; white-space:nowrap;">🔑 Deactivate</button>
+                            </div>`;
+                        }).join("");
                     }
                     
                     html += `<tr>
                         <td><strong>${user.UserName}</strong></td>
-                        <td><span class="${mfaClass}">${mfaText}</span></td>
+                        <td>${mfaDisplay}</td>
                         <td>${keysHtml}</td>
                     </tr>`;
                 });
@@ -357,7 +545,7 @@
             const s3Audit = report.S3_Audit || [];
             
             if (s3Audit.length === 0) {
-                s3Body.innerHTML = `<tr><td colspan="2" class="placeholder-text">No S3 Buckets found in this account.</td></tr>`;
+                s3Body.innerHTML = `<tr><td colspan="4" class="placeholder-text">No S3 Buckets found in this account.</td></tr>`;
             } else {
                 let html = "";
                 s3Audit.forEach(bucket => {
@@ -366,9 +554,26 @@
                     
                     if (bucket.IsPublic) s3Gaps++;
                     
+                    let statusDisplay = `<span class="${statusClass}">${statusText}</span>`;
+                    if (bucket.IsPublic) {
+                        statusDisplay = `<div style="display:flex; align-items:center; gap:10px;">
+                            <span class="${statusClass}">${statusText}</span>
+                            <button class="btn btn-primary btn-small" onclick="remediateS3('${bucket.BucketName}')" style="padding:4px 10px; font-size:11px; width:auto; white-space:nowrap;">🔒 Secure Bucket</button>
+                        </div>`;
+                    }
+                    
+                    const encClass = bucket.IsEncrypted ? "badge success" : "badge danger";
+                    const encText = bucket.IsEncrypted ? "Encrypted" : "Unencrypted";
+                    if (!bucket.IsEncrypted) s3Gaps++;
+                    
+                    const verClass = bucket.IsVersioned ? "badge success" : "badge warning";
+                    const verText = bucket.IsVersioned ? "Enabled" : "Disabled";
+                    
                     html += `<tr>
                         <td><strong>${bucket.BucketName}</strong></td>
-                        <td><span class="${statusClass}">${statusText}</span></td>
+                        <td>${statusDisplay}</td>
+                        <td><span class="${encClass}">${encText}</span></td>
+                        <td><span class="${verClass}">${verText}</span></td>
                     </tr>`;
                 });
                 s3Body.innerHTML = html;
@@ -407,6 +612,73 @@
                 valS3.textContent = "Public Risk!";
                 cardS3.className = "metric-card glass danger-glow";
             }
+        }
+
+        // Remediation logic trigger handlers
+        function remediateS3(bucketName) {
+            if (!confirm(`Are you sure you want to secure S3 Bucket "${bucketName}"? This will enable all Public Access Block settings.`)) {
+                return;
+            }
+            showToast("Securing S3 bucket...", true);
+            fetch('/api/remediate/s3', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ bucket_name: bucketName })
+            })
+            .then(res => res.json())
+            .then(data => {
+                if (data.success) {
+                    showToast(data.message, true);
+                    triggerScan();
+                } else {
+                    showToast(`Failed: ${data.error}`, false);
+                }
+            })
+            .catch(err => showToast("Remediation connection failed", false));
+        }
+
+        function remediateQuarantine(username) {
+            if (!confirm(`Are you sure you want to quarantine user "${username}"? This will attach an inline DenyAllExceptMFA policy.`)) {
+                return;
+            }
+            showToast("Quarantining IAM user...", true);
+            fetch('/api/remediate/iam/quarantine', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ username: username })
+            })
+            .then(res => res.json())
+            .then(data => {
+                if (data.success) {
+                    showToast(data.message, true);
+                    triggerScan();
+                } else {
+                    showToast(`Failed: ${data.error}`, false);
+                }
+            })
+            .catch(err => showToast("Remediation connection failed", false));
+        }
+
+        function remediateDeactivate(username, accessKeyId) {
+            if (!confirm(`Are you sure you want to deactivate Access Key "${accessKeyId}" for user "${username}"?`)) {
+                return;
+            }
+            showToast("Deactivating Access Key...", true);
+            fetch('/api/remediate/iam/deactivate', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ username: username, access_key_id: accessKeyId })
+            })
+            .then(res => res.json())
+            .then(data => {
+                if (data.success) {
+                    showToast(data.message, true);
+                    triggerScan();
+                } else {
+                    showToast(`Failed: ${data.error}`, false);
+                }
+            })
+            .catch(err => showToast("Remediation connection failed", false));
         }
     </script>
 </body>

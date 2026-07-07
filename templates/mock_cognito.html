@@ -1,0 +1,182 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>AWS Cognito - Authorize Security Auditor</title>
+    <!-- Premium Fonts -->
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700&display=swap" rel="stylesheet" media="print" onload="this.media='all'">
+    <!-- Style Sheet -->
+    <link rel="stylesheet" href="/static/style.css">
+    <style>
+        .cognito-container {
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            min-height: 100vh;
+            padding: 20px;
+        }
+
+        .cognito-card {
+            width: 100%;
+            max-width: 500px;
+            padding: 40px;
+            display: flex;
+            flex-direction: column;
+            gap: 25px;
+        }
+
+        .cognito-header {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            border-bottom: 1px solid var(--border-color);
+            padding-bottom: 20px;
+        }
+
+        .cognito-header h1 {
+            font-size: 20px;
+            font-weight: 700;
+            color: var(--neon-orange);
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+
+        .aws-badge {
+            background: rgba(255, 153, 0, 0.15);
+            border: 1px solid var(--neon-orange);
+            color: var(--neon-orange);
+            padding: 4px 10px;
+            border-radius: 20px;
+            font-size: 11px;
+            font-weight: 600;
+            text-transform: uppercase;
+        }
+
+        .cognito-body {
+            display: flex;
+            flex-direction: column;
+            gap: 15px;
+            font-size: 14px;
+            line-height: 1.6;
+            color: var(--text-main);
+        }
+
+        .scope-list {
+            background: rgba(0, 0, 0, 0.3);
+            border: 1px solid var(--border-color);
+            padding: 15px 20px;
+            border-radius: 8px;
+            display: flex;
+            flex-direction: column;
+            gap: 10px;
+        }
+
+        .scope-item {
+            display: flex;
+            align-items: flex-start;
+            gap: 10px;
+            font-size: 13px;
+        }
+
+        .scope-icon {
+            color: var(--neon-green);
+            font-weight: bold;
+        }
+
+        .info-box {
+            background: rgba(0, 229, 255, 0.05);
+            border: 1px solid rgba(0, 229, 255, 0.2);
+            color: var(--neon-blue);
+            padding: 12px 16px;
+            border-radius: 8px;
+            font-size: 12px;
+        }
+
+        .btn-group {
+            display: flex;
+            gap: 15px;
+            margin-top: 10px;
+        }
+
+        .btn-group form, .btn-group a {
+            flex: 1;
+        }
+
+        .btn-group button, .btn-group a {
+            width: 100%;
+        }
+    </style>
+</head>
+<body>
+    <div style="position: fixed; top: 20px; right: 20px; z-index: 100;">
+        <button id="btn-theme-toggle" class="btn btn-tertiary btn-small" style="padding: 8px 14px; font-size: 12px; display: flex; align-items: center; gap: 6px; border: 1px solid var(--border-color); background: rgba(0,0,0,0.2);">
+            🌓 Switch Theme
+        </button>
+    </div>
+
+    <div class="background-glows">
+        <div class="glow glow-1"></div>
+        <div class="glow glow-2"></div>
+    </div>
+
+    <div class="cognito-container">
+        <div class="cognito-card glass">
+            <div class="cognito-header">
+                <h1>aws <span>Cognito</span></h1>
+                <span class="aws-badge">OIDC Provider</span>
+            </div>
+
+            <div class="cognito-body">
+                <p>
+                    <strong>AWS Security Configuration Auditor</strong> is requesting authorization to connect with your AWS account.
+                </p>
+                
+                <p style="color: var(--text-muted); font-size: 13px;">
+                    Upon approval, AWS Cognito will securely redirect back and issue an OIDC Identity Token, allowing the auditor to assume the read-only scan role.
+                </p>
+
+                <div class="scope-list">
+                    <strong>Requested Auditing Permissions:</strong>
+                    <div class="scope-item">
+                        <span class="scope-icon">✓</span>
+                        <div><strong>IAM Metadata Audit:</strong> Permission to evaluate user MFA status and list Access Key metadata.</div>
+                    </div>
+                    <div class="scope-item">
+                        <span class="scope-icon">✓</span>
+                        <div><strong>S3 Exposure Assessment:</strong> Permission to inspect Bucket public access blocks.</div>
+                    </div>
+                </div>
+
+                <div class="info-box">
+                    ℹ️ <strong>Mock Demo Account Target:</strong><br>
+                    AWS Account: <code>123456789012</code> (Mock Cognito SSO Role)
+                </div>
+            </div>
+
+            <div class="btn-group">
+                <a href="/login" class="btn btn-tertiary" style="text-decoration: none; text-align: center; line-height: 24px;">Cancel</a>
+                <form action="/login/aws/mock/approve" method="POST">
+                    <button type="submit" class="btn btn-cf">Approve & Log In</button>
+                </form>
+            </div>
+        </div>
+    </div>
+    <script>
+        // Theme switching logic
+        const themeBtn = document.getElementById("btn-theme-toggle");
+        const savedTheme = localStorage.getItem("theme") || "dark";
+        document.documentElement.setAttribute("data-theme", savedTheme);
+        
+        themeBtn.addEventListener("click", () => {
+            const currentTheme = document.documentElement.getAttribute("data-theme");
+            const newTheme = currentTheme === "dark" ? "light" : "dark";
+            document.documentElement.setAttribute("data-theme", newTheme);
+            localStorage.setItem("theme", newTheme);
+        });
+    </script>
+</body>
+</html>

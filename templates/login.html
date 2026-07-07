@@ -1,0 +1,298 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>AWS Session Login - Security Auditor</title>
+    <!-- Premium Fonts -->
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700&display=swap" rel="stylesheet" media="print" onload="this.media='all'">
+    <!-- Main Style sheet -->
+    <link rel="stylesheet" href="/static/style.css">
+    <style>
+        .login-page {
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            min-height: 100vh;
+            padding: 20px;
+        }
+
+        .login-card {
+            width: 100%;
+            max-width: 480px;
+            padding: 40px 30px;
+            display: flex;
+            flex-direction: column;
+            gap: 25px;
+        }
+
+        .login-logo {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            gap: 12px;
+            text-align: center;
+        }
+
+        .login-logo .shield {
+            font-size: 48px;
+            filter: drop-shadow(0 0 12px var(--neon-blue));
+        }
+
+        .login-logo h1 {
+            font-size: 24px;
+            font-weight: 600;
+            background: linear-gradient(135deg, #fff 0%, #a5b4fc 100%);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+        }
+
+        .login-logo p {
+            font-size: 13px;
+            color: var(--text-muted);
+        }
+
+        /* Tabs Navigation */
+        .login-tabs {
+            display: flex;
+            border-bottom: 1px solid var(--border-color);
+            margin-bottom: 5px;
+        }
+
+        .tab-btn {
+            flex: 1;
+            background: none;
+            border: none;
+            color: var(--text-muted);
+            padding: 12px;
+            font-family: inherit;
+            font-size: 13px;
+            font-weight: 600;
+            cursor: pointer;
+            transition: all 0.2s ease;
+            text-align: center;
+            border-bottom: 2px solid transparent;
+        }
+
+        .tab-btn:hover {
+            color: var(--text-main);
+        }
+
+        .tab-btn.active {
+            color: var(--neon-blue);
+            border-bottom-color: var(--neon-blue);
+        }
+
+        .form-group {
+            display: flex;
+            flex-direction: column;
+            gap: 8px;
+            margin-bottom: 15px;
+        }
+
+        .form-group label {
+            font-size: 12px;
+            font-weight: 500;
+            color: var(--text-muted);
+        }
+
+        .form-group input, .form-group select {
+            background: rgba(0, 0, 0, 0.35);
+            border: 1px solid var(--border-color);
+            padding: 12px 16px;
+            border-radius: 8px;
+            color: var(--text-main);
+            font-family: inherit;
+            font-size: 13px;
+            transition: all 0.2s ease;
+        }
+
+        .form-group input:focus, .form-group select:focus {
+            outline: none;
+            border-color: var(--neon-blue);
+            box-shadow: 0 0 0 3px rgba(0, 229, 255, 0.15);
+        }
+
+        .form-group select option {
+            background: #0a0c10;
+            color: var(--text-main);
+        }
+
+        .error-banner {
+            background: rgba(255, 56, 96, 0.08);
+            border: 1px solid rgba(255, 56, 96, 0.25);
+            color: var(--neon-red);
+            padding: 12px 16px;
+            border-radius: 8px;
+            font-size: 12px;
+            line-height: 1.4;
+            font-weight: 500;
+        }
+
+        .helper-text {
+            font-size: 11px;
+            color: var(--text-muted);
+            line-height: 1.4;
+            margin-top: -3px;
+        }
+
+        .helper-text a {
+            color: var(--neon-orange);
+            text-decoration: none;
+        }
+
+        .helper-text a:hover {
+            text-decoration: underline;
+        }
+    </style>
+</head>
+<body>
+    <div style="position: fixed; top: 20px; right: 20px; z-index: 100;">
+        <button id="btn-theme-toggle" class="btn btn-tertiary btn-small" style="padding: 8px 14px; font-size: 12px; display: flex; align-items: center; gap: 6px; border: 1px solid var(--border-color); background: rgba(0,0,0,0.2);">
+            🌓 Switch Theme
+        </button>
+    </div>
+
+    <div class="background-glows">
+        <div class="glow glow-1"></div>
+        <div class="glow glow-2"></div>
+    </div>
+
+    <div class="login-page">
+        <div class="login-card glass">
+            <div class="login-logo">
+                <span class="shield">🛡️</span>
+                <h1>AWS Security Auditor</h1>
+                <p>Enter your AWS configuration to check for security warnings</p>
+            </div>
+
+            {% if error %}
+            <div class="error-banner">
+                ⚠️ {{ error }}
+            </div>
+            {% endif %}
+
+            <a href="/login/aws" class="btn btn-cf" style="text-decoration: none; text-align: center; font-weight: 700; display: flex; align-items: center; justify-content: center; gap: 10px; margin-bottom: 5px;">
+                <span style="font-size: 18px;">☁️</span> Login with AWS Single Sign-On
+            </a>
+
+            <div style="display: flex; align-items: center; gap: 10px; color: var(--text-muted); font-size: 11px; justify-content: center; margin: -5px 0 10px 0;">
+                <hr style="flex: 1; border: none; border-top: 1px solid var(--border-color);">
+                <span>OR CONNECT MANUALLY</span>
+                <hr style="flex: 1; border: none; border-top: 1px solid var(--border-color);">
+            </div>
+
+            <!-- Tabs -->
+            <div class="login-tabs">
+                <button type="button" class="tab-btn active" onclick="switchTab('keys')">🔑 Access Keys Mode</button>
+                <button type="button" class="tab-btn" onclick="switchTab('role')">🚀 IAM Role Mode</button>
+            </div>
+
+            <form action="/login" method="POST" id="login-form" style="display: flex; flex-direction: column; gap: 10px;">
+                <!-- Mode Indicator Hidden Input -->
+                <input type="hidden" name="auth_mode" id="auth_mode" value="keys">
+
+                <!-- Shared Region Field -->
+                <div class="form-group">
+                    <label for="region_name">AWS Scan Region</label>
+                    <select id="region_name" name="region_name">
+                        <option value="us-east-1" selected>us-east-1 (N. Virginia)</option>
+                        <option value="us-east-2">us-east-2 (Ohio)</option>
+                        <option value="us-west-2">us-west-2 (Oregon)</option>
+                        <option value="eu-west-1">eu-west-1 (Ireland)</option>
+                        <option value="ap-southeast-1">ap-southeast-1 (Singapore)</option>
+                        <option value="ap-south-1">ap-south-1 (Mumbai)</option>
+                    </select>
+                </div>
+
+                <!-- Access Key Fields -->
+                <div id="fields-keys">
+                    <div class="form-group">
+                        <label for="aws_access_key_id">AWS Access Key ID</label>
+                        <input type="text" id="aws_access_key_id" name="aws_access_key_id" placeholder="AKIAXXXXXXXXXXXXXXXX" required>
+                    </div>
+
+                    <div class="form-group">
+                        <label for="aws_secret_access_key">AWS Secret Access Key</label>
+                        <input type="password" id="aws_secret_access_key" name="aws_secret_access_key" placeholder="Enter secret access key" required>
+                    </div>
+                </div>
+
+                <!-- Role ARN Field -->
+                <div id="fields-role" style="display: none;">
+                    <div class="form-group">
+                        <label for="role_arn">Auditing IAM Role ARN</label>
+                        <input type="text" id="role_arn" name="role_arn" placeholder="arn:aws:iam::123456789012:role/MyAuditorRole">
+                        <p class="helper-text">
+                            Need a role? Launch the <a href="https://console.aws.amazon.com/cloudformation/home?region=us-east-1#/stacks/create/review?stackName=AWS-Security-Auditor-Role&templateURL=https://raw.githubusercontent.com/pavanwishvajayasekara/Cloud-Security-Configuration-Auditor-/main/auditor_role.yaml" target="_blank">CloudFormation Template</a> in your console to deploy a secure read-only role.
+                        </p>
+                    </div>
+                    
+                    <div class="form-group">
+                        <label for="role_parent_id">Delegated Access Key ID (Optional)</label>
+                        <input type="text" id="role_parent_id" name="role_parent_id" placeholder="Optional Access Key to assume role with">
+                    </div>
+                    
+                    <div class="form-group">
+                        <label for="role_parent_secret">Delegated Secret Access Key (Optional)</label>
+                        <input type="password" id="role_parent_secret" name="role_parent_secret" placeholder="Optional Secret Key to assume role with">
+                    </div>
+                </div>
+
+                <button type="submit" class="btn btn-primary" style="margin-top: 15px; width: 100%;">
+                    🔄 Verify AWS & Scan Dashboard
+                </button>
+            </form>
+        </div>
+    </div>
+
+    <script>
+        function switchTab(mode) {
+            // Update hidden input
+            document.getElementById("auth_mode").value = mode;
+
+            // Toggle Tab Buttons
+            const buttons = document.querySelectorAll(".tab-btn");
+            if (mode === 'keys') {
+                buttons[0].classList.add("active");
+                buttons[1].classList.remove("active");
+                
+                // Toggle Fields
+                document.getElementById("fields-keys").style.display = "block";
+                document.getElementById("fields-role").style.display = "none";
+                
+                // Handle Required constraints
+                document.getElementById("aws_access_key_id").required = true;
+                document.getElementById("aws_secret_access_key").required = true;
+                document.getElementById("role_arn").required = false;
+            } else {
+                buttons[0].classList.remove("active");
+                buttons[1].classList.add("active");
+                
+                // Toggle Fields
+                document.getElementById("fields-keys").style.display = "none";
+                document.getElementById("fields-role").style.display = "block";
+                
+                // Handle Required constraints
+                document.getElementById("aws_access_key_id").required = false;
+                document.getElementById("aws_secret_access_key").required = false;
+                document.getElementById("role_arn").required = true;
+            }
+        }
+
+        // Theme switching logic
+        const themeBtn = document.getElementById("btn-theme-toggle");
+        const savedTheme = localStorage.getItem("theme") || "dark";
+        document.documentElement.setAttribute("data-theme", savedTheme);
+        
+        themeBtn.addEventListener("click", () => {
+            const currentTheme = document.documentElement.getAttribute("data-theme");
+            const newTheme = currentTheme === "dark" ? "light" : "dark";
+            document.documentElement.setAttribute("data-theme", newTheme);
+            localStorage.setItem("theme", newTheme);
+        });
+    </script>
+</body>
+</html>
